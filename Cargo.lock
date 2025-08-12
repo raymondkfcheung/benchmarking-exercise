@@ -2357,6 +2357,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-identity"
+version = "4.0.0-dev"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "pallet-balances",
+ "parity-scale-codec",
+ "polkadot-sdk-frame",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-std",
+]
+
+[[package]]
 name = "pallet-multisig"
 version = "4.0.0-dev"
 dependencies = [
@@ -2553,6 +2570,7 @@ dependencies = [
  "pallet-balances",
  "pallet-dpos",
  "pallet-free-tx",
+ "pallet-identity",
  "pallet-multisig",
  "pallet-sudo",
  "pallet-timestamp",

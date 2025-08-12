@@ -33,6 +33,7 @@ pallet-dpos = { path = "../pallets/dpos", default-features = false }
 pallet-multisig = { path = "../pallets/multisig", default-features = false }
 pallet-treasury = { path = "../pallets/treasury", default-features = false }
 pallet-free-tx = { path = "../pallets/free-tx", default-features = false }
+pallet-identity = { path = "../pallets/identity", default-features = false }
 
 [build-dependencies]
 substrate-wasm-builder = { workspace = true, optional = true }
@@ -57,6 +58,7 @@ std = [
 	"pallet-free-tx/std",
 	"pallet-multisig/std",
 	"pallet-treasury/std",
+	"pallet-identity/std",
 
 	"sp-genesis-builder/std",
 	"sp-runtime/std",
@@ -74,6 +76,7 @@ runtime-benchmarks = [
 	"pallet-free-tx/runtime-benchmarks",
 	"pallet-multisig/runtime-benchmarks",
 	"pallet-treasury/runtime-benchmarks",
+	"pallet-identity/runtime-benchmarks",
 
 	"sp-runtime/runtime-benchmarks",
 ]
@@ -91,6 +94,7 @@ try-runtime = [
 	"pallet-free-tx/try-runtime",
 	"pallet-multisig/try-runtime",
 	"pallet-treasury/try-runtime",
+	"pallet-identity/try-runtime",
 
 	"sp-runtime/try-runtime",
 ]

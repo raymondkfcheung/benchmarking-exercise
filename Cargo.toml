@@ -11,6 +11,7 @@ members = [
 	"pallets/free-tx",
 	"pallets/multisig",
 	"pallets/treasury",
+	"pallets/identity",
 	"runtime",
 ]
 resolver = "2"

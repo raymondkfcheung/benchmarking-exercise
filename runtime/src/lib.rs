@@ -85,6 +85,9 @@ mod runtime {
 	#[runtime::pallet_index(8)]
 	pub type Treasury = pallet_treasury;
 
+	#[runtime::pallet_index(9)]
+	pub type Identity = pallet_identity;
+
 	#[runtime::pallet_index(99)]
 	pub type Timestamp = pallet_timestamp;
 }
@@ -243,6 +246,23 @@ impl pallet_treasury::Config for Runtime {
 	type RuntimeHoldReason = RuntimeHoldReason;
 }
 
+parameter_types! {
+	pub const BasicDeposit: Balance = 10;
+	pub const ByteDeposit: Balance = 1;
+	pub const MaxRegistrars: u32 = 20;
+}
+
+/// Configure the pallet-identity in pallets/identity.
+impl pallet_identity::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type Currency = Balances;
+	type BasicDeposit = BasicDeposit;
+	type ByteDeposit = ByteDeposit;
+	type MaxRegistrars = MaxRegistrars;
+	type ForceOrigin = EnsureRoot<AccountId>;
+	type RegistrarOrigin = EnsureRoot<AccountId>;
+}
+
 /// The signed extensions that are added to the runtime.
 type SignedExtra = (
 	frame_system::CheckNonZeroSender<Runtime>,
@@ -278,6 +298,7 @@ mod benches {
 		[pallet_multisig, Multisig]
 		[pallet_free_tx, FreeTx]
 		[pallet_treasury, Treasury]
+		[pallet_identity, Identity]
 		[pallet_timestamp, Timestamp]
 	);
 }
