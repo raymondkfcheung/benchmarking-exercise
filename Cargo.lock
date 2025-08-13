@@ -2289,23 +2289,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
-name = "pallet-assets"
-version = "42.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e7b226dac42400ed2bac82ecdb672413f805c7b48e481875c3ecb7f517bfcf"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "impl-trait-for-tuples",
- "log",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-runtime",
-]
-
-[[package]]
 name = "pallet-balances"
 version = "41.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2323,58 +2306,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pallet-dpos"
-version = "4.0.0-dev"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "pallet-balances",
- "parity-scale-codec",
- "polkadot-sdk-frame",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "pallet-free-tx"
-version = "4.0.0-dev"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "pallet-balances",
- "parity-scale-codec",
- "polkadot-sdk-frame",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "pallet-identity"
-version = "4.0.0-dev"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "pallet-balances",
- "parity-scale-codec",
- "polkadot-sdk-frame",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "pallet-multisig"
 version = "4.0.0-dev"
 dependencies = [
  "frame-benchmarking",
@@ -2454,24 +2386,6 @@ dependencies = [
  "sp-api",
  "sp-runtime",
  "sp-weights",
-]
-
-[[package]]
-name = "pallet-treasury"
-version = "4.0.0-dev"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "pallet-assets",
- "pallet-balances",
- "parity-scale-codec",
- "polkadot-sdk-frame",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
 ]
 
 [[package]]
@@ -2566,17 +2480,12 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 name = "pba-runtime"
 version = "0.1.0"
 dependencies = [
- "pallet-assets",
  "pallet-balances",
- "pallet-dpos",
- "pallet-free-tx",
  "pallet-identity",
- "pallet-multisig",
  "pallet-sudo",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
- "pallet-treasury",
  "parity-scale-codec",
  "polkadot-sdk-frame",
  "scale-info",

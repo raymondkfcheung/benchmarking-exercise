@@ -26,13 +26,7 @@ pallet-timestamp = { workspace = true }
 pallet-sudo = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
-pallet-assets = { workspace = true }
-
 # local pallets
-pallet-dpos = { path = "../pallets/dpos", default-features = false }
-pallet-multisig = { path = "../pallets/multisig", default-features = false }
-pallet-treasury = { path = "../pallets/treasury", default-features = false }
-pallet-free-tx = { path = "../pallets/free-tx", default-features = false }
 pallet-identity = { path = "../pallets/identity", default-features = false }
 
 [build-dependencies]
@@ -52,12 +46,6 @@ std = [
 	"pallet-transaction-payment-rpc-runtime-api/std",
 	"pallet-transaction-payment/std",
 
-	"pallet-assets/std",
-
-	"pallet-dpos/std",
-	"pallet-free-tx/std",
-	"pallet-multisig/std",
-	"pallet-treasury/std",
 	"pallet-identity/std",
 
 	"sp-genesis-builder/std",
@@ -67,15 +55,9 @@ std = [
 runtime-benchmarks = [
 	"frame/runtime-benchmarks",
 
-	"pallet-assets/runtime-benchmarks",
 	"pallet-balances/runtime-benchmarks",
 	"pallet-sudo/runtime-benchmarks",
 	"pallet-timestamp/runtime-benchmarks",
-
-	"pallet-dpos/runtime-benchmarks",
-	"pallet-free-tx/runtime-benchmarks",
-	"pallet-multisig/runtime-benchmarks",
-	"pallet-treasury/runtime-benchmarks",
 	"pallet-identity/runtime-benchmarks",
 
 	"sp-runtime/runtime-benchmarks",
@@ -88,12 +70,6 @@ try-runtime = [
 	"pallet-timestamp/try-runtime",
 	"pallet-transaction-payment/try-runtime",
 
-	"pallet-assets/try-runtime",
-
-	"pallet-dpos/try-runtime",
-	"pallet-free-tx/try-runtime",
-	"pallet-multisig/try-runtime",
-	"pallet-treasury/try-runtime",
 	"pallet-identity/try-runtime",
 
 	"sp-runtime/try-runtime",

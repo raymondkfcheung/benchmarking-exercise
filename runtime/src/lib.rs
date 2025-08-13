@@ -5,11 +5,9 @@ extern crate alloc;
 use alloc::{vec, vec::Vec};
 use frame::{
 	deps::{
-		codec::Compact,
 		frame_support::{
 			genesis_builder_helper::{build_state, get_preset},
 			runtime,
-			traits::AsEnsureOriginWithArg,
 			weights::FixedFee,
 		},
 	},
@@ -18,7 +16,7 @@ use frame::{
 		apis::{self, impl_runtime_apis},
 		prelude::*,
 	},
-	traits::{FindAuthor, One},
+	traits::One,
 };
 use pallet_transaction_payment::{ConstFeeMultiplier, FeeDetails, Multiplier, RuntimeDispatchInfo};
 
@@ -70,24 +68,11 @@ mod runtime {
 	#[runtime::pallet_index(3)]
 	pub type TransactionPayment = pallet_transaction_payment;
 
+	/// Identity pallet for benchmarking exercise
 	#[runtime::pallet_index(4)]
-	pub type Assets = pallet_assets;
-
-	#[runtime::pallet_index(5)]
-	pub type Multisig = pallet_multisig;
-
-	#[runtime::pallet_index(6)]
-	pub type FreeTx = pallet_free_tx;
-
-	#[runtime::pallet_index(7)]
-	pub type Dpos = pallet_dpos;
-
-	#[runtime::pallet_index(8)]
-	pub type Treasury = pallet_treasury;
-
-	#[runtime::pallet_index(9)]
 	pub type Identity = pallet_identity;
 
+	/// Timestamp pallet (required by some runtime APIs)
 	#[runtime::pallet_index(99)]
 	pub type Timestamp = pallet_timestamp;
 }
@@ -141,110 +126,10 @@ impl pallet_transaction_payment::Config for Runtime {
 	type LengthToFee = FixedFee<0, Balance>;
 }
 
-// we don't really need this pallet, but it PJS apps requires :(
+// Timestamp pallet is required for runtime APIs
 #[derive_impl(pallet_timestamp::config_preludes::TestDefaultConfig)]
 impl pallet_timestamp::Config for Runtime {}
 
-parameter_types! {
-	pub const AssetDeposit: Balance = 100;
-	pub const ApprovalDeposit: Balance = 1;
-	pub const StringLimit: u32 = 50;
-	pub const MetadataDepositBase: Balance = 10;
-	pub const MetadataDepositPerByte: Balance = 1;
-}
-
-impl pallet_assets::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type Balance = u128;
-	type AssetId = u32;
-	type AssetIdParameter = Compact<u32>;
-	type Currency = Balances;
-	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
-	type ForceOrigin = EnsureRoot<AccountId>;
-	type AssetDeposit = AssetDeposit;
-	type AssetAccountDeposit = ConstU128<1>;
-	type MetadataDepositBase = MetadataDepositBase;
-	type MetadataDepositPerByte = MetadataDepositPerByte;
-	type ApprovalDeposit = ApprovalDeposit;
-	type StringLimit = StringLimit;
-	type Freezer = ();
-	type Extra = ();
-	type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
-	type RemoveItemsLimit = ConstU32<1000>;
-	type CallbackHandle = ();
-	type Holder = ();
-	#[cfg(feature = "runtime-benchmarks")]
-	type BenchmarkHelper = ();
-}
-
-/// Configure the pallet-multisig in pallets/multisig.
-impl pallet_multisig::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type NativeBalance = Balances;
-	type RuntimeCall = RuntimeCall;
-	type RuntimeHoldReason = RuntimeHoldReason;
-}
-
-/// Configure the pallet-free-tx in pallets/free-tx.
-impl pallet_free_tx::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type NativeBalance = Balances;
-	type RuntimeCall = RuntimeCall;
-	type RuntimeHoldReason = RuntimeHoldReason;
-}
-
-parameter_types! {
-	pub const MaxValidators: u32 = 10;
-}
-
-pub struct BlockAuthor;
-impl FindAuthor<AccountId> for BlockAuthor {
-	fn find_author<'a, I>(_: I) -> Option<AccountId>
-	where
-		I: 'a + IntoIterator<Item = ([u8; 4], &'a [u8])>,
-	{
-		// return a random-ish block author previously reported.
-		let last_known_set = ValidatorSet::get();
-		if last_known_set.is_empty() {
-			return None;
-		}
-
-		let index = frame_system::Pallet::<Runtime>::block_number() as usize % last_known_set.len();
-		Some(last_known_set[index].clone())
-	}
-}
-
-parameter_types! {
-	// This is a temporary storage that will keep the validators. In reality, this would have been
-	// `pallet-aura` or another pallet that would consume these.
-	pub storage ValidatorSet: Vec<AccountId> = vec![];
-}
-
-pub struct StoreNewValidatorSet;
-impl pallet_dpos::ReportNewValidatorSet<AccountId> for StoreNewValidatorSet {
-	fn report_new_validator_set(new_set: Vec<AccountId>) {
-		ValidatorSet::set(&new_set);
-	}
-}
-
-/// Configure the pallet-dpos in pallets/dpos.
-impl pallet_dpos::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type NativeBalance = Balances;
-	type MaxValidators = MaxValidators;
-	type FindAuthor = BlockAuthor;
-	type ReportNewValidatorSet = StoreNewValidatorSet;
-	type RuntimeHoldReason = RuntimeHoldReason;
-}
-
-/// Configure the pallet-treasury in pallets/treasury.
-impl pallet_treasury::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type NativeBalance = Balances;
-	type Fungibles = Assets;
-	type CustomOrigin = EnsureRoot<AccountId>;
-	type RuntimeHoldReason = RuntimeHoldReason;
-}
 
 parameter_types! {
 	pub const BasicDeposit: Balance = 10;
@@ -293,10 +178,6 @@ mod benches {
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_balances, Balances]
 		[pallet_sudo, Sudo]
-		[pallet_dpos, Dpos]
-		[pallet_multisig, Multisig]
-		[pallet_free_tx, FreeTx]
-		[pallet_treasury, Treasury]
 		[pallet_identity, Identity]
 		[pallet_timestamp, Timestamp]
 	);
