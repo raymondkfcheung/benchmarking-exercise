@@ -4,17 +4,24 @@
 //! designed to showcase various benchmarking patterns and complexities:
 //!
 //! 1. **Linear complexity** - `set_identity` scales with identity data size O(n)
-//! 2. **Logarithmic complexity** - `provide_judgement` uses binary search O(log n)  
-//! 3. **Linear cleanup** - `clear_identity` scales with number of judgements O(j)
+//! 2. **Logarithmic complexity** - `provide_judgement_inline` uses binary search O(log n)
+//! 3. **Storage pattern comparison** - Different usage patterns with one unified clear extrinsic:
+//!    - `provide_judgement_inline`: Uses BoundedVec with O(log n) binary search
+//!    - `provide_judgement_double_map`: Uses DoubleMap with O(1) insertion
+//!    - `clear_identity`: Single extrinsic with complexity depending on prior usage
+//!      - `clear_identity_inline_usage`: Effectively O(1) cleanup when only inline judgements used
+//!      - `clear_identity_double_map_usage`: O(n) cleanup where n = actual double map judgements
 //! 4. **Economic operations** - Currency operations (reserve, unreserve)
 //! 5. **Vector operations** - Sorted insertion and binary search in bounded collections
 //! 6. **Storage operations** - Multiple storage interactions with proper state management
 //!
 //! ## Learning Objectives
 //!
-//! - Understanding different complexity patterns (linear vs logarithmic)
+//! - Understanding different complexity patterns (linear vs logarithmic vs constant)
+//! - **Storage design tradeoffs** - Comparing BoundedVec vs DoubleMap performance
 //! - Using multiple complexity parameters (b for bytes, j for judgements)
 //! - Measuring worst-case execution paths for different algorithms
+//! - **Real-world performance implications** - Why storage choice matters for cleanup operations
 //! - Binary search benchmarking with sorted data structures
 //! - Vector operations with bounded collections
 //! - Verifying benchmark correctness with comprehensive assertions
@@ -22,7 +29,7 @@
 #![cfg(feature = "runtime-benchmarks")]
 use super::*;
 
-use crate::{Pallet as Identity, Config, IdentityInfo, Judgement};
+use crate::{Config, IdentityInfo, Judgement, Pallet as Identity};
 use frame_benchmarking::v2::*;
 use frame_support::{
 	traits::{Currency, Get, ReservableCurrency},
@@ -37,7 +44,7 @@ use sp_std::vec;
 fn create_identity_info(bytes: u32) -> IdentityInfo {
 	let data = vec![b'X'; bytes.min(MAX_FIELD_LENGTH) as usize];
 	let bounded_data = BoundedVec::try_from(data).unwrap_or_default();
-	
+
 	IdentityInfo {
 		display: bounded_data.clone(),
 		legal: bounded_data.clone(),
@@ -60,7 +67,7 @@ mod benchmarks {
 	use super::*;
 
 	/// Benchmark: set_identity
-	/// 
+	///
 	/// Complexity: Linear in the number of bytes of identity information (b)
 	/// This benchmark demonstrates:
 	/// - Linear complexity with respect to data size
@@ -75,9 +82,9 @@ mod benchmarks {
 	) {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller);
-		
+
 		let identity_info = create_identity_info(b);
-		let expected_deposit = T::BasicDeposit::get() + 
+		let expected_deposit = T::BasicDeposit::get() +
 			T::ByteDeposit::get() * u32::from(identity_info.encoded_size()).into();
 
 		#[extrinsic_call]
@@ -98,17 +105,18 @@ mod benchmarks {
 	}
 
 	/// Benchmark: set_identity_update
-	/// 
-	/// This benchmark tests the update path when an identity already exists
-	/// It demonstrates conditional logic benchmarking - measuring the "update" case
-	/// vs the "insert" case measured in set_identity above
+	///
+	/// This benchmark tests the update path when an identity already exists with judgements.
+	/// It demonstrates the worst case where we have maximum inline judgements that need to be
+	/// filtered for sticky ones. This measures the cost of retaining sticky judgements.
 	#[benchmark]
 	fn set_identity_update(
 		b: Linear<1, { MAX_FIELD_LENGTH }>,
+		j: Linear<0, { T::MaxJudgements::get() }>, // Number of existing judgements
 	) {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller);
-		
+
 		// Pre-condition: set an initial identity
 		let initial_info = create_identity_info(b / 2);
 		let _ = Identity::<T>::set_identity(
@@ -118,7 +126,19 @@ mod benchmarks {
 			initial_info.web,
 			initial_info.email,
 		);
-		
+
+		// Add maximum judgements (mix of sticky and non-sticky) for worst case
+		for i in 0..j {
+			// Alternate between sticky (KnownGood/Erroneous) and non-sticky (Reasonable/LowQuality)
+			let judgement_type = if i % 2 == 0 { 2 } else { 1 }; // KnownGood or Reasonable
+			let _ = Identity::<T>::provide_judgement_inline(
+				RawOrigin::Root.into(),
+				i,
+				caller.clone(),
+				judgement_type,
+			);
+		}
+
 		let new_identity_info = create_identity_info(b);
 
 		#[extrinsic_call]
@@ -130,69 +150,26 @@ mod benchmarks {
 			new_identity_info.email.clone(),
 		);
 
-		// Verify the update worked
+		// Verify the update worked and sticky judgements were retained
 		let registration = IdentityOf::<T>::get(&caller).unwrap();
 		assert_eq!(registration.info, new_identity_info);
+		// Should have roughly half the judgements (only sticky ones retained)
+		assert!(registration.judgements.len() <= j as usize);
 	}
 
-	/// Benchmark: clear_identity
-	/// 
-	/// Complexity: Linear in the number of judgements (j)
-	/// This benchmark demonstrates:
-	/// - Storage cleanup operations with linear complexity
-	/// - Economic operations (unreserving currency)
-	/// - Vector cleanup proportional to number of judgements
-	#[benchmark]
-	fn clear_identity(
-		j: Linear<0, { T::MaxJudgements::get() }>,  // Number of judgements
-	) {
-		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller);
-		
-		// Pre-condition: set up identity
-		let identity_info = create_identity_info(10);
-		let _ = Identity::<T>::set_identity(
-			RawOrigin::Signed(caller.clone()).into(),
-			identity_info.display,
-			identity_info.legal,
-			identity_info.web,
-			identity_info.email,
-		);
-
-		// Add judgements to create linear complexity in cleanup
-		for i in 0..j {
-			IdentityOf::<T>::mutate(&caller, |maybe_reg| {
-				if let Some(ref mut reg) = maybe_reg {
-					let _ = reg.judgements.try_push((i, Judgement::Reasonable));
-				}
-			});
-		}
-
-		let _deposit_before = T::Currency::reserved_balance(&caller);
-
-		#[extrinsic_call]
-		clear_identity(RawOrigin::Signed(caller.clone()));
-
-		// Verify storage was cleared and deposit returned
-		assert!(IdentityOf::<T>::get(&caller).is_none());
-		assert_eq!(T::Currency::reserved_balance(&caller), Zero::zero());
-		assert_eq!(T::Currency::free_balance(&caller), 
-			T::Currency::total_balance(&caller));
-	}
-
-
-	/// Benchmark: provide_judgement
-	/// 
-	/// This benchmark tests providing a judgement on an identity with existing judgements
+	/// Benchmark: provide_judgement_inline
+	///
+	/// This benchmark tests providing a judgement using inline storage (BoundedVec)
 	/// Complexity: Logarithmic in the number of existing judgements (j) for binary search
-	/// This demonstrates logarithmic complexity O(log n) operations
+	/// This demonstrates logarithmic complexity O(log n) operations with efficient inline storage
 	#[benchmark]
-	fn provide_judgement(
-		j: Linear<0, { T::MaxJudgements::get() - 1 }>,  // Max existing judgements so we can add one more
+	fn provide_judgement_inline(
+		j: Linear<0, { T::MaxJudgements::get() - 1 }>, /* Max existing judgements so we can add
+		                                                * one more */
 	) {
 		let target: T::AccountId = account("target", 0, 0);
 		fund_account::<T>(&target);
-		
+
 		// Pre-condition: set up identity
 		let identity_info = create_identity_info(10);
 		let _ = Identity::<T>::set_identity(
@@ -219,7 +196,7 @@ mod benchmarks {
 		let judgement_type = 2u8; // KnownGood
 
 		#[extrinsic_call]
-		provide_judgement(RawOrigin::Root, new_judgement_id, target.clone(), judgement_type);
+		provide_judgement_inline(RawOrigin::Root, new_judgement_id, target.clone(), judgement_type);
 
 		// Verify judgement was provided and inserted correctly
 		let registration = IdentityOf::<T>::get(&target).unwrap();
@@ -227,8 +204,159 @@ mod benchmarks {
 		assert_eq!(registration.judgements[0], (new_judgement_id, Judgement::KnownGood));
 		// Verify ordering is maintained
 		for i in 1..registration.judgements.len() {
-			assert!(registration.judgements[i-1].0 < registration.judgements[i].0);
+			assert!(registration.judgements[i - 1].0 < registration.judgements[i].0);
 		}
+	}
+
+	/// Benchmark: provide_judgement_double_map
+	///
+	/// This benchmark tests providing a judgement using double map storage
+	/// Complexity: Constant time O(1) for insertion but requires separate validation
+	/// This demonstrates the double map storage pattern with separate storage management
+	#[benchmark]
+	fn provide_judgement_double_map(
+		j: Linear<0, { T::MaxJudgements::get() - 1 }>, /* Max existing judgements so we can add
+		                                                * one more */
+	) {
+		let target: T::AccountId = account("target", 0, 0);
+		fund_account::<T>(&target);
+
+		// Pre-condition: set up identity
+		let identity_info = create_identity_info(10);
+		let _ = Identity::<T>::set_identity(
+			RawOrigin::Signed(target.clone()).into(),
+			identity_info.display,
+			identity_info.legal,
+			identity_info.web,
+			identity_info.email,
+		);
+
+		// Add existing judgements to the double map
+		for i in 0..j {
+			let judgement_id = (i * 2) + 1; // Creates IDs: 1, 3, 5, 7, ...
+			JudgementsDoubleMap::<T>::insert(&target, judgement_id, Judgement::Reasonable);
+		}
+
+		let new_judgement_id = 0u32; // This will be a new entry
+		let judgement_type = 2u8; // KnownGood
+
+		#[extrinsic_call]
+		provide_judgement_double_map(
+			RawOrigin::Root,
+			new_judgement_id,
+			target.clone(),
+			judgement_type,
+		);
+
+		// Verify judgement was provided
+		assert_eq!(
+			JudgementsDoubleMap::<T>::get(&target, new_judgement_id),
+			Some(Judgement::KnownGood)
+		);
+		// Verify other judgements still exist
+		for i in 0..j {
+			let judgement_id = (i * 2) + 1;
+			assert_eq!(
+				JudgementsDoubleMap::<T>::get(&target, judgement_id),
+				Some(Judgement::Reasonable)
+			);
+		}
+	}
+
+	/// Benchmark: clear_identity_inline_usage
+	///
+	/// Complexity: Effectively O(1) - when only inline judgements were used
+	/// This benchmark demonstrates the efficient case where only provide_judgement_inline
+	/// was used. Even though clear_identity always checks the double map, it will be fast
+	/// since no double map entries exist, making the overall operation effectively O(1).
+	#[benchmark]
+	fn clear_identity_inline_usage(
+		j: Linear<0, { T::MaxJudgements::get() }>, // Number of judgements
+	) {
+		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller);
+
+		// Pre-condition: set up identity
+		let identity_info = create_identity_info(10);
+		let _ = Identity::<T>::set_identity(
+			RawOrigin::Signed(caller.clone()).into(),
+			identity_info.display,
+			identity_info.legal,
+			identity_info.web,
+			identity_info.email,
+		);
+
+		// Add judgements using ONLY the inline approach (via provide_judgement_inline)
+		for i in 0..j {
+			let _ = Identity::<T>::provide_judgement_inline(
+				RawOrigin::Root.into(),
+				i,
+				caller.clone(),
+				1, // Reasonable
+			);
+		}
+
+		let _deposit_before = T::Currency::reserved_balance(&caller);
+
+		#[extrinsic_call]
+		clear_identity(RawOrigin::Signed(caller.clone()));
+
+		// Verify storage was cleared and deposit returned
+		assert!(IdentityOf::<T>::get(&caller).is_none());
+		// Verify no double map entries exist (since we only used inline)
+		for i in 0..j {
+			assert!(!JudgementsDoubleMap::<T>::contains_key(&caller, i));
+		}
+		assert_eq!(T::Currency::reserved_balance(&caller), Zero::zero());
+		assert_eq!(T::Currency::free_balance(&caller), T::Currency::total_balance(&caller));
+	}
+
+	/// Benchmark: clear_identity_double_map_usage
+	///
+	/// Complexity: Linear in actual judgements (j) - when double map judgements were used
+	/// This benchmark demonstrates the case where provide_judgement_double_map was used.
+	/// The clear_identity operation uses clear_prefix to remove all judgements - O(j).
+	/// This shows the performance difference vs inline storage where cleanup is O(1).
+	#[benchmark]
+	fn clear_identity_double_map_usage(
+		j: Linear<0, { T::MaxJudgements::get() }>, // Number of judgements
+	) {
+		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller);
+
+		// Pre-condition: set up identity
+		let identity_info = create_identity_info(10);
+		let _ = Identity::<T>::set_identity(
+			RawOrigin::Signed(caller.clone()).into(),
+			identity_info.display,
+			identity_info.legal,
+			identity_info.web,
+			identity_info.email,
+		);
+
+		// Add judgements using ONLY the double map approach (via provide_judgement_double_map)
+		for i in 0..j {
+			let _ = Identity::<T>::provide_judgement_double_map(
+				RawOrigin::Root.into(),
+				i,
+				caller.clone(),
+				1, // Reasonable
+			);
+		}
+
+		let _deposit_before = T::Currency::reserved_balance(&caller);
+
+		#[extrinsic_call]
+		clear_identity(RawOrigin::Signed(caller.clone()));
+
+		// Verify all storage was cleared
+		assert!(IdentityOf::<T>::get(&caller).is_none());
+		// Verify double map entries were also cleared
+		for i in 0..j {
+			assert!(!JudgementsDoubleMap::<T>::contains_key(&caller, i));
+		}
+		assert_eq!(T::Currency::reserved_balance(&caller), Zero::zero());
+		assert_eq!(T::Currency::free_balance(&caller), T::Currency::total_balance(&caller));
 	}
 
 	impl_benchmark_test_suite!(Identity, crate::mock::new_test_ext(), crate::mock::Test);

@@ -1,7 +1,7 @@
 //! # Simplified Identity Pallet
 //!
 //! A simplified version of the Identity pallet designed for benchmarking exercises.
-//! 
+//!
 //! This pallet provides basic identity management functionality:
 //! - Set identity information with configurable fields
 //! - Clear identity information
@@ -22,7 +22,8 @@
 //!
 //! ## Benchmarking Focus
 //!
-//! This enhanced version demonstrates multiple complexity patterns for comprehensive benchmarking education:
+//! This enhanced version demonstrates multiple complexity patterns for comprehensive benchmarking
+//! education:
 //!
 //! ### Linear Complexity Patterns:
 //! - **`set_identity`**: Scales with identity data size O(b) where b = total bytes
@@ -56,12 +57,12 @@ mod benchmarking;
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	pallet_prelude::*,
-	traits::{Currency, ReservableCurrency, Get},
+	traits::{Currency, Get, ReservableCurrency},
 	BoundedVec,
 };
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
-use sp_runtime::traits::{Zero, Saturating};
+use sp_runtime::traits::{Saturating, Zero};
 use sp_std::vec;
 
 /// Maximum length for identity field data
@@ -98,7 +99,6 @@ impl IdentityInfo {
 	}
 }
 
-
 /// Judgement provided by verifiers
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub enum Judgement {
@@ -122,9 +122,8 @@ impl Judgement {
 	}
 }
 
-
-
-pub type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+pub type BalanceOf<T> =
+	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 pub type JudgementId = u32;
 
 #[frame_support::pallet(dev_mode)]
@@ -138,6 +137,8 @@ pub mod pallet {
 		pub info: IdentityInfo,
 		/// Judgements on this identity. Stored as (judgement_id, judgement) pairs, ordered by ID.
 		pub judgements: BoundedVec<(u32, Judgement), T::MaxJudgements>,
+		/// Count of judgements stored in the double map (for educational comparison).
+		pub judgements_count_double_map: u32,
 		/// Amount reserved for the identity information.
 		pub deposit: BalanceOf<T>,
 	}
@@ -160,8 +161,15 @@ pub mod pallet {
 				.composite(
 					scale_info::build::Fields::named()
 						.field(|f| f.ty::<IdentityInfo>().name("info").type_name("IdentityInfo"))
-						.field(|f| f.ty::<BoundedVec<(u32, Judgement), ConstU32<20>>>().name("judgements").type_name("BoundedVec<(u32, Judgement), MaxJudgements>"))
-						.field(|f| f.ty::<u128>().name("deposit").type_name("Balance"))
+						.field(|f| {
+							f.ty::<BoundedVec<(u32, Judgement), ConstU32<20>>>()
+								.name("judgements")
+								.type_name("BoundedVec<(u32, Judgement), MaxJudgements>")
+						})
+						.field(|f| {
+							f.ty::<u32>().name("judgements_count_double_map").type_name("u32")
+						})
+						.field(|f| f.ty::<u128>().name("deposit").type_name("Balance")),
 				)
 		}
 	}
@@ -196,14 +204,22 @@ pub mod pallet {
 
 	/// Information that is pertinent to identify the entity behind an account.
 	#[pallet::storage]
-	pub type IdentityOf<T: Config> = StorageMap<
+	pub type IdentityOf<T: Config> =
+		StorageMap<_, Blake2_128Concat, T::AccountId, Registration<T>, OptionQuery>;
+
+	/// Alternative judgement storage using a double map for educational purposes.
+	/// This demonstrates different storage patterns and their performance implications.
+	/// Key1: AccountId (identity holder), Key2: JudgementId, Value: Judgement
+	#[pallet::storage]
+	pub type JudgementsDoubleMap<T: Config> = StorageDoubleMap<
 		_,
 		Blake2_128Concat,
 		T::AccountId,
-		Registration<T>,
+		Blake2_128Concat,
+		JudgementId,
+		Judgement,
 		OptionQuery,
 	>;
-
 
 	/// Pallets use events to inform users when important changes are made.
 	#[pallet::event]
@@ -239,7 +255,6 @@ pub mod pallet {
 	/// Dispatchable functions allow users to interact with the pallet and invoke state changes.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-
 		/// Set an account's identity information and reserve the appropriate deposit.
 		///
 		/// If the account already has identity information, the deposit is taken as part payment
@@ -262,12 +277,7 @@ pub mod pallet {
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
-			let info = IdentityInfo {
-				display,
-				legal,
-				web,
-				email,
-			};
+			let info = IdentityInfo { display, legal, web, email };
 
 			let mut id = match IdentityOf::<T>::get(&sender) {
 				Some(mut id) => {
@@ -279,6 +289,7 @@ pub mod pallet {
 				None => Registration {
 					info,
 					judgements: BoundedVec::default(),
+					judgements_count_double_map: 0,
 					deposit: Zero::zero(),
 				},
 			};
@@ -294,7 +305,119 @@ pub mod pallet {
 			Ok(())
 		}
 
+		/// Provide a judgement for an account's identity using inline storage (BoundedVec).
+		/// This demonstrates the efficient storage pattern where judgements are stored
+		/// inline within the Registration struct as a BoundedVec.
+		///
+		/// The dispatch origin for this call must be `T::JudgementOrigin`.
+		///
+		/// - `judgement_id`: a unique identifier for this judgement provider.
+		/// - `target`: the account whose identity the judgement is upon. This must be an account
+		///   with a registered identity.
+		/// - `judgement_type`: the type of judgement (0=Unknown, 1=Reasonable, 2=KnownGood,
+		///   3=Erroneous, 4=LowQuality).
+		///
+		/// Emits `JudgementGiven` if successful.
+		pub fn provide_judgement_inline(
+			origin: OriginFor<T>,
+			judgement_id: JudgementId,
+			target: T::AccountId,
+			judgement_type: u8,
+		) -> DispatchResult {
+			T::JudgementOrigin::ensure_origin(origin)?;
+
+			// Convert u8 to Judgement
+			let judgement = match judgement_type {
+				0 => Judgement::Unknown,
+				1 => Judgement::Reasonable,
+				2 => Judgement::KnownGood,
+				3 => Judgement::Erroneous,
+				4 => Judgement::LowQuality,
+				_ => return Err(Error::<T>::InvalidJudgement.into()),
+			};
+
+			// Add judgement only to the inline BoundedVec storage
+			Self::add_judgement_inline(&target, judgement_id, judgement)?;
+
+			Self::deposit_event(Event::JudgementGiven { target });
+
+			Ok(())
+		}
+
+		/// Provide a judgement for an account's identity using double map storage.
+		/// This demonstrates the double map storage pattern where judgements are stored
+		/// in a separate DoubleMap, which can be less efficient for cleanup operations but slightly
+		/// faster for `set_identity` in case of many judgements.
+		///
+		/// Note: This version assumes judgement deposit is not necessary and will create storage
+		/// bloat if `T::JudgementOrigin` is not properly managed.
+		///
+		/// The dispatch origin for this call must be `T::JudgementOrigin`.
+		///
+		/// - `judgement_id`: a unique identifier for this judgement provider.
+		/// - `target`: the account whose identity the judgement is upon. This must be an account
+		///   with a registered identity.
+		/// - `judgement_type`: the type of judgement (0=Unknown, 1=Reasonable, 2=KnownGood,
+		///   3=Erroneous, 4=LowQuality).
+		///
+		/// Emits `JudgementGiven` if successful.
+		pub fn provide_judgement_double_map(
+			origin: OriginFor<T>,
+			judgement_id: JudgementId,
+			target: T::AccountId,
+			judgement_type: u8,
+		) -> DispatchResult {
+			T::JudgementOrigin::ensure_origin(origin)?;
+
+			// Convert u8 to Judgement
+			let judgement = match judgement_type {
+				0 => Judgement::Unknown,
+				1 => Judgement::Reasonable,
+				2 => Judgement::KnownGood,
+				3 => Judgement::Erroneous,
+				4 => Judgement::LowQuality,
+				_ => return Err(Error::<T>::InvalidJudgement.into()),
+			};
+
+			// Check that target has an identity and validate sticky judgements
+			let _is_new_judgement =
+				IdentityOf::<T>::try_mutate(&target, |maybe_reg| -> Result<bool, DispatchError> {
+					let reg = maybe_reg.as_mut().ok_or(Error::<T>::InvalidTarget)?;
+
+					// Check for existing judgement in double map
+					if let Some(existing_judgement) =
+						JudgementsDoubleMap::<T>::get(&target, judgement_id)
+					{
+						if existing_judgement.is_sticky() {
+							return Err(Error::<T>::StickyJudgement.into());
+						}
+						// Existing judgement being replaced
+						Ok(false)
+					} else {
+						// New judgement being added - increment counter
+						ensure!(
+							reg.judgements_count_double_map < T::MaxJudgements::get(),
+							Error::<T>::TooManyJudgements
+						);
+						reg.judgements_count_double_map =
+							reg.judgements_count_double_map.saturating_add(1);
+						Ok(true)
+					}
+				})?;
+
+			// Add judgement to the double map storage
+			JudgementsDoubleMap::<T>::insert(&target, judgement_id, judgement);
+
+			Self::deposit_event(Event::JudgementGiven { target });
+
+			Ok(())
+		}
+
 		/// Clear an account's identity info and return all deposits.
+		/// This extrinsic handles both storage patterns - the complexity depends on usage:
+		/// - O(1) if only inline judgements were used (via provide_judgement_inline)
+		/// - O(n) if double map judgements were used, where n = actual number of double map
+		///   judgements
 		///
 		/// Payment: All reserved balances on the account are returned.
 		///
@@ -308,68 +431,18 @@ pub mod pallet {
 			let id = IdentityOf::<T>::take(&sender).ok_or(Error::<T>::NoIdentity)?;
 			let deposit = id.total_deposit();
 
+			// Always cleanup double map judgements (this is O(n) where n = actual judgements)
+			// This operation uses clear_prefix and will be fast if no double map judgements exist
+			Self::clear_judgements_double_map(&sender);
+
+			// The inline judgements are automatically dropped with the Registration struct (O(1))
+
 			let err_amount = T::Currency::unreserve(&sender, deposit);
 			debug_assert!(err_amount.is_zero());
 
 			Self::deposit_event(Event::IdentityCleared { who: sender, deposit });
 			Ok(())
 		}
-
-
-		/// Provide a judgement for an account's identity.
-		///
-		/// The dispatch origin for this call must be `T::JudgementOrigin`.
-		///
-		/// - `judgement_id`: a unique identifier for this judgement provider.
-		/// - `target`: the account whose identity the judgement is upon. This must be an account
-		///   with a registered identity.
-		/// - `judgement_type`: the type of judgement (0=Unknown, 1=Reasonable, 2=KnownGood, 3=Erroneous, 4=LowQuality).
-		///
-		/// Emits `JudgementGiven` if successful.
-		pub fn provide_judgement(
-			origin: OriginFor<T>,
-			judgement_id: JudgementId,
-			target: T::AccountId,
-			judgement_type: u8,
-		) -> DispatchResult {
-			T::JudgementOrigin::ensure_origin(origin)?;
-			
-			// Convert u8 to Judgement
-			let judgement = match judgement_type {
-				0 => Judgement::Unknown,
-				1 => Judgement::Reasonable,
-				2 => Judgement::KnownGood,
-				3 => Judgement::Erroneous,
-				4 => Judgement::LowQuality,
-				_ => return Err(Error::<T>::InvalidJudgement.into()),
-			};
-			
-			let mut id = IdentityOf::<T>::get(&target).ok_or(Error::<T>::InvalidTarget)?;
-
-			// Use binary search to find or insert the judgement
-			let item = (judgement_id, judgement);
-			match id.judgements.binary_search_by_key(&judgement_id, |x| x.0) {
-				Ok(position) => {
-					// Judgement exists, check if it's sticky
-					if id.judgements[position].1.is_sticky() {
-						return Err(Error::<T>::StickyJudgement.into())
-					}
-					// Replace the existing judgement
-					id.judgements[position] = item;
-				},
-				Err(position) => {
-					// Insert new judgement at the correct position to maintain ordering
-					id.judgements.try_insert(position, item)
-						.map_err(|_| Error::<T>::TooManyJudgements)?;
-				},
-			}
-
-			IdentityOf::<T>::insert(&target, id);
-			Self::deposit_event(Event::JudgementGiven { target });
-
-			Ok(())
-		}
-
 	}
 
 	impl<T: Config> Pallet<T> {
@@ -378,12 +451,54 @@ pub mod pallet {
 			IdentityOf::<T>::get(who)
 		}
 
-
 		/// Calculate the deposit required for an identity.
 		fn calculate_identity_deposit(info: &IdentityInfo) -> BalanceOf<T> {
 			let bytes = info.encoded_size();
 			let byte_deposit = T::ByteDeposit::get().saturating_mul(BalanceOf::<T>::from(bytes));
 			T::BasicDeposit::get().saturating_add(byte_deposit)
+		}
+
+		/// Helper function to clear all judgements from the double map for an account.
+		/// This demonstrates efficient cleanup using clear_prefix - O(n) where n is actual
+		/// judgements, which is much better than checking all possible judgement IDs
+		/// O(MAX_JUDGEMENTS).
+		fn clear_judgements_double_map(who: &T::AccountId) -> u32 {
+			// Use clear_prefix to efficiently remove all judgements for this account
+			// This is O(n) where n is the actual number of judgements, not MAX_JUDGEMENTS
+			let removed = JudgementsDoubleMap::<T>::clear_prefix(who, u32::MAX, None);
+			removed.unique as u32
+		}
+
+		/// Helper function to add a judgement to inline storage only (BoundedVec).
+		/// This demonstrates the efficient inline storage pattern.
+		fn add_judgement_inline(
+			who: &T::AccountId,
+			judgement_id: JudgementId,
+			judgement: Judgement,
+		) -> Result<(), DispatchError> {
+			IdentityOf::<T>::try_mutate(who, |maybe_reg| -> Result<(), DispatchError> {
+				let reg = maybe_reg.as_mut().ok_or(Error::<T>::InvalidTarget)?;
+
+				// Use binary search for the BoundedVec (efficient)
+				let item = (judgement_id, judgement);
+				match reg.judgements.binary_search_by_key(&judgement_id, |x| x.0) {
+					Ok(position) => {
+						// Judgement exists, check if it's sticky
+						if reg.judgements[position].1.is_sticky() {
+							return Err(Error::<T>::StickyJudgement.into())
+						}
+						// Replace the existing judgement
+						reg.judgements[position] = item;
+					},
+					Err(position) => {
+						// Insert new judgement at the correct position to maintain ordering
+						reg.judgements
+							.try_insert(position, item)
+							.map_err(|_| Error::<T>::TooManyJudgements)?;
+					},
+				}
+				Ok(())
+			})
 		}
 
 		/// Take the `current` deposit that `who` is holding, and update it to a `new` one.

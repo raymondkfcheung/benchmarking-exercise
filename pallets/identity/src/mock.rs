@@ -1,7 +1,7 @@
 use crate as pallet_identity;
 use frame_support::{
 	construct_runtime, derive_impl, parameter_types,
-	traits::{ConstU16, ConstU32, ConstU64, ConstU128},
+	traits::{ConstU128, ConstU16, ConstU32, ConstU64},
 };
 use frame_system as system;
 use sp_runtime::{
