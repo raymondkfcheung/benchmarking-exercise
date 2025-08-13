@@ -68,7 +68,7 @@ impl pallet_balances::Config for Test {
 parameter_types! {
 	pub const BasicDeposit: u128 = 10;
 	pub const ByteDeposit: u128 = 1;
-	pub const MaxRegistrars: u32 = 20;
+	pub const MaxJudgements: u32 = 20;
 }
 
 impl pallet_identity::Config for Test {
@@ -76,9 +76,8 @@ impl pallet_identity::Config for Test {
 	type Currency = Balances;
 	type BasicDeposit = BasicDeposit;
 	type ByteDeposit = ByteDeposit;
-	type MaxRegistrars = MaxRegistrars;
-	type ForceOrigin = frame_system::EnsureRoot<Self::AccountId>;
-	type RegistrarOrigin = frame_system::EnsureRoot<Self::AccountId>;
+	type MaxJudgements = MaxJudgements;
+	type JudgementOrigin = frame_system::EnsureRoot<Self::AccountId>;
 }
 
 // Build genesis storage according to the mock runtime.

@@ -5,30 +5,40 @@
 //! This pallet provides basic identity management functionality:
 //! - Set identity information with configurable fields
 //! - Clear identity information
-//! - Request judgements from registrars
-//! - Provide judgements as a registrar
+//! - Provide judgements (from a configurable origin)
 //! - Force operations (admin functions)
 //!
 //! ## Overview
 //!
-//! This pallet allows users to set identity information that can be verified by registrars.
-//! Users pay deposits for storing identity information, and registrars can provide judgements
+//! This pallet allows users to set identity information that can be verified.
+//! Users pay deposits for storing identity information, and verifiers can provide judgements
 //! about the validity of identities.
 //!
 //! ### Key Features
 //! - **Identity Information**: Users can set display name, legal name, web, email etc.
-//! - **Registrar System**: Trusted entities can verify identity information
+//! - **Judgement System**: Configurable origin can verify identity information
 //! - **Deposits**: Economic mechanism to prevent spam and ensure data quality
-//! - **Judgements**: Registrars provide opinions on identity validity
+//! - **Judgements**: Verification opinions on identity validity
 //!
 //! ## Benchmarking Focus
 //!
-//! This simplified version is designed to provide various benchmarking scenarios:
-//! - Storage operations of different complexity
-//! - Economic operations (deposits, slashing)
-//! - Linear complexity based on data size
-//! - Conditional logic branches
-//! - Vector operations and bounded collections
+//! This enhanced version demonstrates multiple complexity patterns for comprehensive benchmarking education:
+//!
+//! ### Linear Complexity Patterns:
+//! - **`set_identity`**: Scales with identity data size O(b) where b = total bytes
+//! - **`clear_identity`**: Scales with number of judgements O(j) during cleanup
+//!
+//! ### Logarithmic Complexity Patterns:
+//! - **`provide_judgement`**: Binary search and sorted insertion O(log j)
+//!
+//! ### Key Learning Features:
+//! - Multiple complexity parameters (b = bytes, j = judgements)
+//! - **Configurable bounds**: MaxJudgements parameter controls vector size limits
+//! - Binary search operations in sorted bounded vectors
+//! - Economic operations with deposit calculations
+//! - Conditional logic (sticky vs non-sticky judgements)
+//! - Vector operations with maintained ordering
+//! - Storage cleanup with linear time complexity
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -89,73 +99,72 @@ impl IdentityInfo {
 }
 
 
-/// Judgement provided by registrars
+/// Judgement provided by verifiers
 #[derive(Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub enum Judgement<Balance> {
+pub enum Judgement {
 	/// The default value; no opinion is held.
 	Unknown,
-	/// A judgement is being requested, with the given fee reserved.
-	FeePaid(Balance),
-	/// The target is known directly by the registrar and the registrar is confident that the
-	/// identity is reasonable.
+	/// The target is known and the identity is reasonable.
 	Reasonable,
-	/// The target is known directly by the registrar and the registrar is confident that the
-	/// identity is good.
+	/// The target is known and the identity is good.
 	KnownGood,
-	/// The target is known directly by the registrar and the registrar is confident that the
-	/// identity is erroneous.
+	/// The target is known and the identity is erroneous.
 	Erroneous,
-	/// An erroneous identity may be corrected by governance.
+	/// An erroneous identity may be corrected.
 	LowQuality,
 }
 
-impl<Balance> Judgement<Balance> {
+impl Judgement {
 	/// Returns true if this judgement is "sticky" (cannot be removed except by complete
-	/// removal of the identity or by the registrar).
+	/// removal of the identity or by the verifier).
 	pub fn is_sticky(&self) -> bool {
 		matches!(self, Judgement::KnownGood | Judgement::Erroneous)
 	}
-
-	/// Returns true if this judgement has an associated deposit.
-	pub fn has_deposit(&self) -> bool {
-		matches!(self, Judgement::FeePaid(_))
-	}
 }
 
 
-/// Information concerning the identity of the controller of an account.
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub struct Registration<Balance> {
-	/// Information about the identity.
-	pub info: IdentityInfo,
-	/// Judgements from the registrars on this identity. Stored ordered by registrar index.
-	pub judgements: BoundedVec<(u32, Judgement<Balance>), ConstU32<20>>,
-	/// Amount reserved for the identity information.
-	pub deposit: Balance,
-}
-
-impl<Balance: Zero + Saturating + Copy> Registration<Balance> {
-	/// Calculate the total deposit for this registration
-	pub fn total_deposit(&self) -> Balance {
-		self.deposit
-	}
-}
-
-/// Information about a registrar
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub struct RegistrarInfo<Balance, AccountId> {
-	/// The account of the registrar.
-	pub account: AccountId,
-	/// The fee required to be paid for a judgement to be given by this registrar.
-	pub fee: Balance,
-}
 
 pub type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-pub type RegistrarIndex = u32;
+pub type JudgementId = u32;
 
 #[frame_support::pallet(dev_mode)]
 pub mod pallet {
 	use super::*;
+
+	/// Information concerning the identity of the controller of an account.
+	#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, MaxEncodedLen)]
+	pub struct Registration<T: Config> {
+		/// Information about the identity.
+		pub info: IdentityInfo,
+		/// Judgements on this identity. Stored as (judgement_id, judgement) pairs, ordered by ID.
+		pub judgements: BoundedVec<(u32, Judgement), T::MaxJudgements>,
+		/// Amount reserved for the identity information.
+		pub deposit: BalanceOf<T>,
+	}
+
+	impl<T: Config> Registration<T> {
+		/// Calculate the total deposit for this registration
+		pub fn total_deposit(&self) -> BalanceOf<T>
+		where
+			BalanceOf<T>: Zero + Saturating + Copy,
+		{
+			self.deposit
+		}
+	}
+
+	impl<T: Config> TypeInfo for Registration<T> {
+		type Identity = Self;
+		fn type_info() -> scale_info::Type {
+			scale_info::Type::builder()
+				.path(scale_info::Path::new("Registration", module_path!()))
+				.composite(
+					scale_info::build::Fields::named()
+						.field(|f| f.ty::<IdentityInfo>().name("info").type_name("IdentityInfo"))
+						.field(|f| f.ty::<BoundedVec<(u32, Judgement), ConstU32<20>>>().name("judgements").type_name("BoundedVec<(u32, Judgement), MaxJudgements>"))
+						.field(|f| f.ty::<u128>().name("deposit").type_name("Balance"))
+				)
+		}
+	}
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -177,15 +186,12 @@ pub mod pallet {
 		#[pallet::constant]
 		type ByteDeposit: Get<BalanceOf<Self>>;
 
-		/// Maximum number of registrars allowed in the system.
+		/// Maximum number of judgements allowed for a single identity.
 		#[pallet::constant]
-		type MaxRegistrars: Get<u32>;
+		type MaxJudgements: Get<u32>;
 
-		/// The origin which may forcibly set or remove a name. Root can always do this.
-		type ForceOrigin: EnsureOrigin<Self::RuntimeOrigin>;
-
-		/// The origin which may add or remove registrars. Root can always do this.
-		type RegistrarOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+		/// The origin which may provide judgements on identities. Root can always do this.
+		type JudgementOrigin: EnsureOrigin<Self::RuntimeOrigin>;
 	}
 
 	/// Information that is pertinent to identify the entity behind an account.
@@ -194,35 +200,21 @@ pub mod pallet {
 		_,
 		Blake2_128Concat,
 		T::AccountId,
-		Registration<BalanceOf<T>>,
+		Registration<T>,
 		OptionQuery,
 	>;
 
-	/// The set of registrars. Not expected to get very big as can only be added through a
-	/// special origin (likely a council motion).
-	#[pallet::storage]
-	pub type Registrars<T: Config> = StorageValue<
-		_,
-		BoundedVec<Option<RegistrarInfo<BalanceOf<T>, T::AccountId>>, T::MaxRegistrars>,
-		ValueQuery,
-	>;
 
 	/// Pallets use events to inform users when important changes are made.
 	#[pallet::event]
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
-		/// A name was set or reset (which will remove all judgements).
+		/// A name was set or reset (which will remove judgement).
 		IdentitySet { who: T::AccountId },
 		/// A name was cleared, and the given balance returned.
 		IdentityCleared { who: T::AccountId, deposit: BalanceOf<T> },
-		/// A name was removed and the given balance slashed.
-		IdentityKilled { who: T::AccountId, deposit: BalanceOf<T> },
-		/// A judgement was asked from a registrar.
-		JudgementRequested { who: T::AccountId, registrar_index: RegistrarIndex },
-		/// A judgement was given by a registrar.
-		JudgementGiven { target: T::AccountId, registrar_index: RegistrarIndex },
-		/// A registrar was added.
-		RegistrarAdded { registrar_index: RegistrarIndex },
+		/// A judgement was given.
+		JudgementGiven { target: T::AccountId },
 	}
 
 	/// Errors inform users that something went wrong.
@@ -232,55 +224,21 @@ pub mod pallet {
 		NotFound,
 		/// No identity found.
 		NoIdentity,
-		/// Fee is changed.
-		FeeChanged,
 		/// Sticky judgement.
 		StickyJudgement,
 		/// Judgement given.
 		JudgementGiven,
 		/// Invalid judgement.
 		InvalidJudgement,
-		/// The index is invalid.
-		InvalidIndex,
 		/// The target is invalid.
 		InvalidTarget,
-		/// Maximum amount of registrars reached. Cannot add any more.
-		TooManyRegistrars,
-		/// Error that occurs when there is an issue paying for judgement.
-		JudgementPaymentFailed,
+		/// Too many judgements for this identity.
+		TooManyJudgements,
 	}
 
 	/// Dispatchable functions allow users to interact with the pallet and invoke state changes.
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		/// Add a registrar to the system.
-		///
-		/// The dispatch origin for this call must be `T::RegistrarOrigin`.
-		///
-		/// - `account`: the account of the registrar.
-		///
-		/// Emits `RegistrarAdded` if successful.
-		pub fn add_registrar(
-			origin: OriginFor<T>,
-			account: T::AccountId,
-		) -> DispatchResult {
-			T::RegistrarOrigin::ensure_origin(origin)?;
-
-			let (i, _registrar_count) = Registrars::<T>::try_mutate(
-				|registrars| -> Result<(RegistrarIndex, usize), DispatchError> {
-					registrars
-						.try_push(Some(RegistrarInfo {
-							account,
-							fee: Zero::zero(),
-						}))
-						.map_err(|_| Error::<T>::TooManyRegistrars)?;
-					Ok(((registrars.len() - 1) as RegistrarIndex, registrars.len()))
-				},
-			)?;
-
-			Self::deposit_event(Event::RegistrarAdded { registrar_index: i });
-			Ok(())
-		}
 
 		/// Set an account's identity information and reserve the appropriate deposit.
 		///
@@ -313,8 +271,8 @@ pub mod pallet {
 
 			let mut id = match IdentityOf::<T>::get(&sender) {
 				Some(mut id) => {
-					// Only keep non-positive judgements (sticky judgements).
-					id.judgements.retain(|j| j.1.is_sticky());
+					// Only keep sticky judgements when setting new identity
+					id.judgements.retain(|(_id, judgement)| judgement.is_sticky());
 					id.info = info;
 					id
 				},
@@ -357,61 +315,12 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Request a judgement from a registrar.
-		///
-		/// Payment: At most `max_fee` will be reserved for payment to the registrar if judgement
-		/// given.
-		///
-		/// The dispatch origin for this call must be _Signed_ and the sender must have a
-		/// registered identity.
-		///
-		/// - `reg_index`: The index of the registrar whose judgement is requested.
-		/// - `max_fee`: The maximum fee that may be paid.
-		///
-		/// Emits `JudgementRequested` if successful.
-		pub fn request_judgement(
-			origin: OriginFor<T>,
-			reg_index: RegistrarIndex,
-			max_fee: BalanceOf<T>,
-		) -> DispatchResult {
-			let sender = ensure_signed(origin)?;
-			let registrars = Registrars::<T>::get();
-			let registrar = registrars
-				.get(reg_index as usize)
-				.and_then(Option::as_ref)
-				.ok_or(Error::<T>::InvalidIndex)?;
-			ensure!(max_fee >= registrar.fee, Error::<T>::FeeChanged);
-			let mut id = IdentityOf::<T>::get(&sender).ok_or(Error::<T>::NoIdentity)?;
-
-			let item = (reg_index, Judgement::FeePaid(registrar.fee));
-			match id.judgements.binary_search_by_key(&reg_index, |x| x.0) {
-				Ok(i) =>
-					if id.judgements[i].1.is_sticky() {
-						return Err(Error::<T>::StickyJudgement.into())
-					} else {
-						id.judgements[i] = item
-					},
-				Err(i) =>
-					id.judgements.try_insert(i, item).map_err(|_| Error::<T>::TooManyRegistrars)?,
-			}
-
-			T::Currency::reserve(&sender, registrar.fee)?;
-			IdentityOf::<T>::insert(&sender, id);
-
-			Self::deposit_event(Event::JudgementRequested {
-				who: sender,
-				registrar_index: reg_index,
-			});
-
-			Ok(())
-		}
 
 		/// Provide a judgement for an account's identity.
 		///
-		/// The dispatch origin for this call must be _Signed_ and the sender must be the account
-		/// of the registrar whose index is `reg_index`.
+		/// The dispatch origin for this call must be `T::JudgementOrigin`.
 		///
-		/// - `reg_index`: the index of the registrar whose judgement is being made.
+		/// - `judgement_id`: a unique identifier for this judgement provider.
 		/// - `target`: the account whose identity the judgement is upon. This must be an account
 		///   with a registered identity.
 		/// - `judgement_type`: the type of judgement (0=Unknown, 1=Reasonable, 2=KnownGood, 3=Erroneous, 4=LowQuality).
@@ -419,11 +328,11 @@ pub mod pallet {
 		/// Emits `JudgementGiven` if successful.
 		pub fn provide_judgement(
 			origin: OriginFor<T>,
-			reg_index: RegistrarIndex,
+			judgement_id: JudgementId,
 			target: T::AccountId,
 			judgement_type: u8,
 		) -> DispatchResult {
-			let sender = ensure_signed(origin)?;
+			T::JudgementOrigin::ensure_origin(origin)?;
 			
 			// Convert u8 to Judgement
 			let judgement = match judgement_type {
@@ -435,79 +344,40 @@ pub mod pallet {
 				_ => return Err(Error::<T>::InvalidJudgement.into()),
 			};
 			
-			ensure!(!judgement.has_deposit(), Error::<T>::InvalidJudgement);
-			
-			Registrars::<T>::get()
-				.get(reg_index as usize)
-				.and_then(Option::as_ref)
-				.filter(|r| r.account == sender)
-				.ok_or(Error::<T>::InvalidIndex)?;
-				
 			let mut id = IdentityOf::<T>::get(&target).ok_or(Error::<T>::InvalidTarget)?;
 
-			let item = (reg_index, judgement);
-			match id.judgements.binary_search_by_key(&reg_index, |x| x.0) {
+			// Use binary search to find or insert the judgement
+			let item = (judgement_id, judgement);
+			match id.judgements.binary_search_by_key(&judgement_id, |x| x.0) {
 				Ok(position) => {
-					if let Judgement::FeePaid(fee) = id.judgements[position].1 {
-						let _remainder = T::Currency::repatriate_reserved(
-							&target,
-							&sender,
-							fee,
-							frame_support::traits::BalanceStatus::Free,
-						);
+					// Judgement exists, check if it's sticky
+					if id.judgements[position].1.is_sticky() {
+						return Err(Error::<T>::StickyJudgement.into())
 					}
-					id.judgements[position] = item
+					// Replace the existing judgement
+					id.judgements[position] = item;
 				},
-				Err(position) => id
-					.judgements
-					.try_insert(position, item)
-					.map_err(|_| Error::<T>::TooManyRegistrars)?,
+				Err(position) => {
+					// Insert new judgement at the correct position to maintain ordering
+					id.judgements.try_insert(position, item)
+						.map_err(|_| Error::<T>::TooManyJudgements)?;
+				},
 			}
 
 			IdentityOf::<T>::insert(&target, id);
-			Self::deposit_event(Event::JudgementGiven { target, registrar_index: reg_index });
+			Self::deposit_event(Event::JudgementGiven { target });
 
 			Ok(())
 		}
 
-		/// Remove an account's identity and sub-account information and slash the deposits.
-		///
-		/// Payment: Reserved balances from `set_identity` are slashed.
-		///
-		/// The dispatch origin for this call must match `T::ForceOrigin`.
-		///
-		/// - `target`: the account whose identity the judgement is upon. This must be an account
-		///   with a registered identity.
-		///
-		/// Emits `IdentityKilled` if successful.
-		pub fn kill_identity(
-			origin: OriginFor<T>,
-			target: T::AccountId,
-		) -> DispatchResult {
-			T::ForceOrigin::ensure_origin(origin)?;
-
-			// Grab their deposit (and check that they have one).
-			let id = IdentityOf::<T>::take(&target).ok_or(Error::<T>::NoIdentity)?;
-			let deposit = id.total_deposit();
-			
-			// Slash their deposit from them.
-			let _imbalance = T::Currency::slash_reserved(&target, deposit);
-
-			Self::deposit_event(Event::IdentityKilled { who: target, deposit });
-			Ok(())
-		}
 	}
 
 	impl<T: Config> Pallet<T> {
 		/// Get the identity information for an account.
-		pub fn identity_of(who: &T::AccountId) -> Option<Registration<BalanceOf<T>>> {
+		pub fn identity_of(who: &T::AccountId) -> Option<Registration<T>> {
 			IdentityOf::<T>::get(who)
 		}
 
-		/// Get the list of registrars.
-		pub fn registrars() -> BoundedVec<Option<RegistrarInfo<BalanceOf<T>, T::AccountId>>, T::MaxRegistrars> {
-			Registrars::<T>::get()
-		}
 
 		/// Calculate the deposit required for an identity.
 		fn calculate_identity_deposit(info: &IdentityInfo) -> BalanceOf<T> {

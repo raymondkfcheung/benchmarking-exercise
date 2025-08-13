@@ -249,7 +249,7 @@ impl pallet_treasury::Config for Runtime {
 parameter_types! {
 	pub const BasicDeposit: Balance = 10;
 	pub const ByteDeposit: Balance = 1;
-	pub const MaxRegistrars: u32 = 20;
+	pub const MaxJudgements: u32 = 20;
 }
 
 /// Configure the pallet-identity in pallets/identity.
@@ -258,9 +258,8 @@ impl pallet_identity::Config for Runtime {
 	type Currency = Balances;
 	type BasicDeposit = BasicDeposit;
 	type ByteDeposit = ByteDeposit;
-	type MaxRegistrars = MaxRegistrars;
-	type ForceOrigin = EnsureRoot<AccountId>;
-	type RegistrarOrigin = EnsureRoot<AccountId>;
+	type MaxJudgements = MaxJudgements;
+	type JudgementOrigin = EnsureRoot<AccountId>;
 }
 
 /// The signed extensions that are added to the runtime.

@@ -3,26 +3,26 @@
 //! This module contains comprehensive benchmarks for the Identity pallet,
 //! designed to showcase various benchmarking patterns and complexities:
 //!
-//! 1. **Simple operations** - Basic storage reads/writes
-//! 2. **Linear complexity** - Operations that scale with input size
-//! 3. **Database operations** - Multiple storage interactions
-//! 4. **Economic operations** - Currency operations (reserve, unreserve, slash)
-//! 5. **Conditional logic** - Different execution paths
-//! 6. **Vector operations** - Working with bounded collections
+//! 1. **Linear complexity** - `set_identity` scales with identity data size O(n)
+//! 2. **Logarithmic complexity** - `provide_judgement` uses binary search O(log n)  
+//! 3. **Linear cleanup** - `clear_identity` scales with number of judgements O(j)
+//! 4. **Economic operations** - Currency operations (reserve, unreserve)
+//! 5. **Vector operations** - Sorted insertion and binary search in bounded collections
+//! 6. **Storage operations** - Multiple storage interactions with proper state management
 //!
 //! ## Learning Objectives
 //!
-//! - Understanding benchmark setup and teardown
-//! - Using linear complexity parameters (r, s, etc.)
-//! - Measuring worst-case execution paths
-//! - Handling storage pre-conditions and post-conditions
-//! - Testing economic operations
-//! - Verifying benchmark correctness with assertions
+//! - Understanding different complexity patterns (linear vs logarithmic)
+//! - Using multiple complexity parameters (b for bytes, j for judgements)
+//! - Measuring worst-case execution paths for different algorithms
+//! - Binary search benchmarking with sorted data structures
+//! - Vector operations with bounded collections
+//! - Verifying benchmark correctness with comprehensive assertions
 
 #![cfg(feature = "runtime-benchmarks")]
 use super::*;
 
-use crate::{Pallet as Identity, Config, IdentityInfo, Judgement, RegistrarInfo};
+use crate::{Pallet as Identity, Config, IdentityInfo, Judgement};
 use frame_benchmarking::v2::*;
 use frame_support::{
 	traits::{Currency, Get, ReservableCurrency},
@@ -93,6 +93,7 @@ mod benchmarks {
 		let registration = IdentityOf::<T>::get(&caller).unwrap();
 		assert_eq!(registration.info, identity_info);
 		assert_eq!(registration.deposit, expected_deposit);
+		assert_eq!(registration.judgements.len(), 0);
 		assert_eq!(T::Currency::reserved_balance(&caller), expected_deposit);
 	}
 
@@ -138,17 +139,17 @@ mod benchmarks {
 	/// 
 	/// Complexity: Linear in the number of judgements (j)
 	/// This benchmark demonstrates:
-	/// - Storage cleanup operations
+	/// - Storage cleanup operations with linear complexity
 	/// - Economic operations (unreserving currency)
-	/// - Linear complexity based on number of associated items
+	/// - Vector cleanup proportional to number of judgements
 	#[benchmark]
 	fn clear_identity(
-		j: Linear<0, { T::MaxRegistrars::get() }>,
+		j: Linear<0, { T::MaxJudgements::get() }>,  // Number of judgements
 	) {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller);
 		
-		// Pre-condition: set up identity with judgements
+		// Pre-condition: set up identity
 		let identity_info = create_identity_info(10);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(caller.clone()).into(),
@@ -157,14 +158,9 @@ mod benchmarks {
 			identity_info.web,
 			identity_info.email,
 		);
-		
-		// Add registrars and judgements for linear complexity
+
+		// Add judgements to create linear complexity in cleanup
 		for i in 0..j {
-			let registrar: T::AccountId = account("registrar", i, 0);
-			fund_account::<T>(&registrar);
-			let _ = Identity::<T>::add_registrar(RawOrigin::Root.into(), registrar.clone());
-			
-			// Add a judgement to create linear complexity
 			IdentityOf::<T>::mutate(&caller, |maybe_reg| {
 				if let Some(ref mut reg) = maybe_reg {
 					let _ = reg.judgements.try_push((i, Judgement::Reasonable));
@@ -172,7 +168,7 @@ mod benchmarks {
 			});
 		}
 
-		let deposit_before = T::Currency::reserved_balance(&caller);
+		let _deposit_before = T::Currency::reserved_balance(&caller);
 
 		#[extrinsic_call]
 		clear_identity(RawOrigin::Signed(caller.clone()));
@@ -184,75 +180,20 @@ mod benchmarks {
 			T::Currency::total_balance(&caller));
 	}
 
-	/// Benchmark: request_judgement
-	/// 
-	/// Complexity: Logarithmic in the number of existing judgements (j) for binary search
-	/// This benchmark demonstrates:
-	/// - Logarithmic complexity (binary search in sorted vector)
-	/// - Economic operations (additional currency reservation)
-	/// - Vector manipulation (sorted insertion)
-	#[benchmark]
-	fn request_judgement(
-		j: Linear<0, { T::MaxRegistrars::get() - 1 }>,
-	) {
-		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller);
-		
-		// Pre-condition: set identity
-		let identity_info = create_identity_info(10);
-		let _ = Identity::<T>::set_identity(
-			RawOrigin::Signed(caller.clone()).into(),
-			identity_info.display,
-			identity_info.legal,
-			identity_info.web,
-			identity_info.email,
-		);
-		
-		// Add registrars for complexity
-		let mut registrar_accounts = vec![];
-		for i in 0..=j {
-			let registrar: T::AccountId = account("registrar", i, 0);
-			fund_account::<T>(&registrar);
-			registrar_accounts.push(registrar.clone());
-			let _ = Identity::<T>::add_registrar(RawOrigin::Root.into(), registrar);
-		}
-		
-		// Add existing judgements to create worst-case binary search scenario
-		// We add judgements for registrars 1..j, then request for registrar 0
-		// This creates a scenario where binary search has to work
-		for i in 1..=j {
-			IdentityOf::<T>::mutate(&caller, |maybe_reg| {
-				if let Some(ref mut reg) = maybe_reg {
-					let _ = reg.judgements.try_push((i, Judgement::Reasonable));
-				}
-			});
-		}
-
-		let reg_index = 0u32;
-		let max_fee = T::Currency::minimum_balance() * 100u32.into();
-
-		#[extrinsic_call]
-		request_judgement(RawOrigin::Signed(caller.clone()), reg_index, max_fee);
-
-		// Verify judgement was requested
-		let registration = IdentityOf::<T>::get(&caller).unwrap();
-		assert!(registration.judgements.iter().any(|(idx, _)| *idx == reg_index));
-	}
 
 	/// Benchmark: provide_judgement
 	/// 
-	/// This benchmark tests the registrar providing a judgement
-	/// It demonstrates role-based operations and payment flows
+	/// This benchmark tests providing a judgement on an identity with existing judgements
+	/// Complexity: Logarithmic in the number of existing judgements (j) for binary search
+	/// This demonstrates logarithmic complexity O(log n) operations
 	#[benchmark]
 	fn provide_judgement(
-		j: Linear<1, { T::MaxRegistrars::get() }>,
+		j: Linear<0, { T::MaxJudgements::get() - 1 }>,  // Max existing judgements so we can add one more
 	) {
 		let target: T::AccountId = account("target", 0, 0);
-		let registrar: T::AccountId = account("registrar", 0, 0);
 		fund_account::<T>(&target);
-		fund_account::<T>(&registrar);
 		
-		// Pre-condition: set up identity, registrar, and judgement request
+		// Pre-condition: set up identity
 		let identity_info = create_identity_info(10);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(target.clone()).into(),
@@ -261,115 +202,33 @@ mod benchmarks {
 			identity_info.web,
 			identity_info.email,
 		);
-		
-		let _ = Identity::<T>::add_registrar(RawOrigin::Root.into(), registrar.clone());
-		let _ = Identity::<T>::request_judgement(
-			RawOrigin::Signed(target.clone()).into(),
-			0,
-			T::Currency::minimum_balance() * 100u32.into()
-		);
-		
-		// Add additional judgements for complexity
-		for i in 1..j {
-			let other_registrar: T::AccountId = account("other_reg", i, 0);
-			fund_account::<T>(&other_registrar);
-			let _ = Identity::<T>::add_registrar(RawOrigin::Root.into(), other_registrar.clone());
-			
+
+		// Add existing judgements to create worst-case binary search scenario
+		// We'll add judgements with IDs 1, 3, 5, 7, ... (odd numbers)
+		// Then insert with ID 0 to test binary search at the beginning
+		for i in 0..j {
+			let judgement_id = (i * 2) + 1; // Creates IDs: 1, 3, 5, 7, ...
 			IdentityOf::<T>::mutate(&target, |maybe_reg| {
 				if let Some(ref mut reg) = maybe_reg {
-					let _ = reg.judgements.try_push((i, Judgement::Reasonable));
+					let _ = reg.judgements.try_push((judgement_id, Judgement::Reasonable));
 				}
 			});
 		}
 
-		let reg_index = 0u32;
+		let new_judgement_id = 0u32; // This will be inserted at position 0
 		let judgement_type = 2u8; // KnownGood
 
 		#[extrinsic_call]
-		provide_judgement(RawOrigin::Signed(registrar.clone()), reg_index, target.clone(), judgement_type);
+		provide_judgement(RawOrigin::Root, new_judgement_id, target.clone(), judgement_type);
 
-		// Verify judgement was provided
+		// Verify judgement was provided and inserted correctly
 		let registration = IdentityOf::<T>::get(&target).unwrap();
-		assert_eq!(
-			registration.judgements.iter().find(|(idx, _)| *idx == reg_index).unwrap().1,
-			Judgement::KnownGood
-		);
-	}
-
-	/// Benchmark: kill_identity
-	/// 
-	/// This benchmark tests the force removal of an identity
-	/// It demonstrates admin operations and slashing
-	#[benchmark]
-	fn kill_identity(
-		j: Linear<0, { T::MaxRegistrars::get() }>,
-	) {
-		let target: T::AccountId = account("target", 0, 0);
-		fund_account::<T>(&target);
-		
-		// Pre-condition: set up identity with judgements
-		let identity_info = create_identity_info(10);
-		let _ = Identity::<T>::set_identity(
-			RawOrigin::Signed(target.clone()).into(),
-			identity_info.display,
-			identity_info.legal,
-			identity_info.web,
-			identity_info.email,
-		);
-		
-		// Add judgements for complexity
-		for i in 0..j {
-			let registrar: T::AccountId = account("registrar", i, 0);
-			fund_account::<T>(&registrar);
-			let _ = Identity::<T>::add_registrar(RawOrigin::Root.into(), registrar);
-			
-			IdentityOf::<T>::mutate(&target, |maybe_reg| {
-				if let Some(ref mut reg) = maybe_reg {
-					let _ = reg.judgements.try_push((i, Judgement::Reasonable));
-				}
-			});
+		assert_eq!(registration.judgements.len(), (j + 1) as usize);
+		assert_eq!(registration.judgements[0], (new_judgement_id, Judgement::KnownGood));
+		// Verify ordering is maintained
+		for i in 1..registration.judgements.len() {
+			assert!(registration.judgements[i-1].0 < registration.judgements[i].0);
 		}
-
-		let deposit_before = T::Currency::reserved_balance(&target);
-		assert!(!deposit_before.is_zero());
-
-		#[extrinsic_call]
-		kill_identity(RawOrigin::Root, target.clone());
-
-		// Verify identity was killed and deposit slashed
-		assert!(IdentityOf::<T>::get(&target).is_none());
-		// Note: After slashing, reserved balance should be reduced
-	}
-
-	/// Benchmark: add_registrar
-	/// 
-	/// This benchmark tests adding registrars to the system
-	/// Linear complexity based on the number of existing registrars
-	#[benchmark]
-	fn add_registrar(
-		r: Linear<0, { T::MaxRegistrars::get() - 1 }>,
-	) {
-		// Pre-condition: add existing registrars for complexity
-		for i in 0..r {
-			let existing_registrar: T::AccountId = account("existing", i, 0);
-			let _ = Identity::<T>::add_registrar(
-				RawOrigin::Root.into(),
-				existing_registrar
-			);
-		}
-		
-		let new_registrar: T::AccountId = account("new_registrar", r, 0);
-
-		#[extrinsic_call]
-		add_registrar(RawOrigin::Root, new_registrar.clone());
-
-		// Verify registrar was added
-		let registrars = Registrars::<T>::get();
-		assert_eq!(registrars.len(), (r + 1) as usize);
-		assert_eq!(
-			registrars.last().unwrap().as_ref().unwrap().account,
-			new_registrar
-		);
 	}
 
 	impl_benchmark_test_suite!(Identity, crate::mock::new_test_ext(), crate::mock::Test);
