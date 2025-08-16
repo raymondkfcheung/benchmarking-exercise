@@ -69,6 +69,7 @@ parameter_types! {
 	pub const BasicDeposit: u128 = 10;
 	pub const ByteDeposit: u128 = 1;
 	pub const MaxJudgements: u32 = 20;
+	pub const MaxFieldLength: u32 = 64;
 }
 
 impl pallet_identity::Config for Test {
@@ -77,6 +78,7 @@ impl pallet_identity::Config for Test {
 	type BasicDeposit = BasicDeposit;
 	type ByteDeposit = ByteDeposit;
 	type MaxJudgements = MaxJudgements;
+	type MaxFieldLength = MaxFieldLength;
 	type JudgementOrigin = frame_system::EnsureRoot<Self::AccountId>;
 }
 

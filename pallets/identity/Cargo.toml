@@ -1,6 +1,6 @@
 [package]
 name = "pallet-identity"
-version = "4.0.0-dev"
+version = "1.0.0"
 description = "Simplified Identity pallet for benchmarking exercises"
 authors = ["PBA <https://github.com/Polkadot-Blockchain-Academy>"]
 homepage = "https://substrate.io"

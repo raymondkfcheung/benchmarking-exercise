@@ -58,41 +58,28 @@ use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	pallet_prelude::*,
 	traits::{Currency, Get, ReservableCurrency},
-	BoundedVec,
+	BoundedVec, CloneNoBound, PartialEqNoBound, RuntimeDebugNoBound,
 };
 use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{Saturating, Zero};
 use sp_std::vec;
 
-/// Maximum length for identity field data
-pub const MAX_FIELD_LENGTH: u32 = 64;
-
 /// Identity information that can be set by users
-#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
-pub struct IdentityInfo {
+#[derive(Encode, Decode, Default, CloneNoBound, PartialEqNoBound, Eq, RuntimeDebugNoBound, TypeInfo, MaxEncodedLen)]
+#[scale_info(skip_type_params(MaxFieldLength))]
+pub struct IdentityInfo<MaxFieldLength: Get<u32>> {
 	/// A reasonable display name for the controller of the account.
-	pub display: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
+	pub display: BoundedVec<u8, MaxFieldLength>,
 	/// The full legal name in the local jurisdiction of the entity.
-	pub legal: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
+	pub legal: BoundedVec<u8, MaxFieldLength>,
 	/// A representative website field.
-	pub web: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
+	pub web: BoundedVec<u8, MaxFieldLength>,
 	/// An email address.
-	pub email: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
+	pub email: BoundedVec<u8, MaxFieldLength>,
 }
 
-impl Default for IdentityInfo {
-	fn default() -> Self {
-		Self {
-			display: BoundedVec::default(),
-			legal: BoundedVec::default(),
-			web: BoundedVec::default(),
-			email: BoundedVec::default(),
-		}
-	}
-}
-
-impl IdentityInfo {
+impl<MaxFieldLength: Get<u32>> IdentityInfo<MaxFieldLength> {
 	/// Get the encoded size of this identity info
 	pub fn encoded_size(&self) -> u32 {
 		self.encode().len() as u32
@@ -131,10 +118,11 @@ pub mod pallet {
 	use super::*;
 
 	/// Information concerning the identity of the controller of an account.
-	#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, MaxEncodedLen)]
+	#[derive(Encode, Decode, CloneNoBound, PartialEqNoBound, Eq, RuntimeDebugNoBound, MaxEncodedLen, TypeInfo)]
+	#[scale_info(skip_type_params(T))]
 	pub struct Registration<T: Config> {
 		/// Information about the identity.
-		pub info: IdentityInfo,
+		pub info: IdentityInfo<T::MaxFieldLength>,
 		/// Judgements on this identity. Stored as (judgement_id, judgement) pairs, ordered by ID.
 		pub judgements: BoundedVec<(u32, Judgement), T::MaxJudgements>,
 		/// Count of judgements stored in the double map (for educational comparison).
@@ -153,26 +141,6 @@ pub mod pallet {
 		}
 	}
 
-	impl<T: Config> TypeInfo for Registration<T> {
-		type Identity = Self;
-		fn type_info() -> scale_info::Type {
-			scale_info::Type::builder()
-				.path(scale_info::Path::new("Registration", module_path!()))
-				.composite(
-					scale_info::build::Fields::named()
-						.field(|f| f.ty::<IdentityInfo>().name("info").type_name("IdentityInfo"))
-						.field(|f| {
-							f.ty::<BoundedVec<(u32, Judgement), ConstU32<20>>>()
-								.name("judgements")
-								.type_name("BoundedVec<(u32, Judgement), MaxJudgements>")
-						})
-						.field(|f| {
-							f.ty::<u32>().name("judgements_count_double_map").type_name("u32")
-						})
-						.field(|f| f.ty::<u128>().name("deposit").type_name("Balance")),
-				)
-		}
-	}
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -200,6 +168,10 @@ pub mod pallet {
 
 		/// The origin which may provide judgements on identities. Root can always do this.
 		type JudgementOrigin: EnsureOrigin<Self::RuntimeOrigin>;
+
+		/// Maximum length for identity field data.
+		#[pallet::constant]
+		type MaxFieldLength: Get<u32>;
 	}
 
 	/// Information that is pertinent to identify the entity behind an account.
@@ -270,10 +242,10 @@ pub mod pallet {
 		/// Emits `IdentitySet` if successful.
 		pub fn set_identity(
 			origin: OriginFor<T>,
-			display: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
-			legal: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
-			web: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
-			email: BoundedVec<u8, ConstU32<MAX_FIELD_LENGTH>>,
+			display: BoundedVec<u8, T::MaxFieldLength>,
+			legal: BoundedVec<u8, T::MaxFieldLength>,
+			web: BoundedVec<u8, T::MaxFieldLength>,
+			email: BoundedVec<u8, T::MaxFieldLength>,
 		) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
@@ -452,7 +424,7 @@ pub mod pallet {
 		}
 
 		/// Calculate the deposit required for an identity.
-		fn calculate_identity_deposit(info: &IdentityInfo) -> BalanceOf<T> {
+		fn calculate_identity_deposit(info: &IdentityInfo<T::MaxFieldLength>) -> BalanceOf<T> {
 			let bytes = info.encoded_size();
 			let byte_deposit = T::ByteDeposit::get().saturating_mul(BalanceOf::<T>::from(bytes));
 			T::BasicDeposit::get().saturating_add(byte_deposit)

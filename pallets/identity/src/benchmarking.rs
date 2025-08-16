@@ -41,8 +41,8 @@ use sp_std::vec;
 
 /// Create a reasonable identity info for benchmarking
 /// This helper demonstrates how to set up test data for benchmarks
-fn create_identity_info(bytes: u32) -> IdentityInfo {
-	let data = vec![b'X'; bytes.min(MAX_FIELD_LENGTH) as usize];
+fn create_identity_info<T: Config>(bytes: u32) -> IdentityInfo<T::MaxFieldLength> {
+	let data = vec![b'X'; bytes.min(T::MaxFieldLength::get()) as usize];
 	let bounded_data = BoundedVec::try_from(data).unwrap_or_default();
 
 	IdentityInfo {
@@ -78,12 +78,12 @@ mod benchmarks {
 	fn set_identity(
 		// Parameter 'b' represents the number of bytes in the identity info
 		// This creates a linear relationship between input size and execution time
-		b: Linear<1, { MAX_FIELD_LENGTH }>,
+		b: Linear<1, { T::MaxFieldLength::get() }>,
 	) {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller);
 
-		let identity_info = create_identity_info(b);
+		let identity_info = create_identity_info::<T>(b);
 		let expected_deposit = T::BasicDeposit::get() +
 			T::ByteDeposit::get() * u32::from(identity_info.encoded_size()).into();
 
@@ -111,14 +111,14 @@ mod benchmarks {
 	/// filtered for sticky ones. This measures the cost of retaining sticky judgements.
 	#[benchmark]
 	fn set_identity_update(
-		b: Linear<1, { MAX_FIELD_LENGTH }>,
+		b: Linear<1, { T::MaxFieldLength::get() }>,
 		j: Linear<0, { T::MaxJudgements::get() }>, // Number of existing judgements
 	) {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller);
 
 		// Pre-condition: set an initial identity
-		let initial_info = create_identity_info(b / 2);
+		let initial_info = create_identity_info::<T>(b / 2);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(caller.clone()).into(),
 			initial_info.display,
@@ -139,7 +139,7 @@ mod benchmarks {
 			);
 		}
 
-		let new_identity_info = create_identity_info(b);
+		let new_identity_info = create_identity_info::<T>(b);
 
 		#[extrinsic_call]
 		set_identity(
@@ -171,7 +171,7 @@ mod benchmarks {
 		fund_account::<T>(&target);
 
 		// Pre-condition: set up identity
-		let identity_info = create_identity_info(10);
+		let identity_info = create_identity_info::<T>(10);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(target.clone()).into(),
 			identity_info.display,
@@ -222,7 +222,7 @@ mod benchmarks {
 		fund_account::<T>(&target);
 
 		// Pre-condition: set up identity
-		let identity_info = create_identity_info(10);
+		let identity_info = create_identity_info::<T>(10);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(target.clone()).into(),
 			identity_info.display,
@@ -277,7 +277,7 @@ mod benchmarks {
 		fund_account::<T>(&caller);
 
 		// Pre-condition: set up identity
-		let identity_info = create_identity_info(10);
+		let identity_info = create_identity_info::<T>(10);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(caller.clone()).into(),
 			identity_info.display,
@@ -325,7 +325,7 @@ mod benchmarks {
 		fund_account::<T>(&caller);
 
 		// Pre-condition: set up identity
-		let identity_info = create_identity_info(10);
+		let identity_info = create_identity_info::<T>(10);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(caller.clone()).into(),
 			identity_info.display,

@@ -135,6 +135,7 @@ parameter_types! {
 	pub const BasicDeposit: Balance = 10;
 	pub const ByteDeposit: Balance = 1;
 	pub const MaxJudgements: u32 = 20;
+	pub const MaxFieldLength: u32 = 64;
 }
 
 /// Configure the pallet-identity in pallets/identity.
@@ -144,6 +145,7 @@ impl pallet_identity::Config for Runtime {
 	type BasicDeposit = BasicDeposit;
 	type ByteDeposit = ByteDeposit;
 	type MaxJudgements = MaxJudgements;
+	type MaxFieldLength = MaxFieldLength;
 	type JudgementOrigin = EnsureRoot<AccountId>;
 }
 
