@@ -4,12 +4,10 @@ extern crate alloc;
 
 use alloc::{vec, vec::Vec};
 use frame::{
-	deps::{
-		frame_support::{
-			genesis_builder_helper::{build_state, get_preset},
-			runtime,
-			weights::FixedFee,
-		},
+	deps::frame_support::{
+		genesis_builder_helper::{build_state, get_preset},
+		runtime,
+		weights::FixedFee,
 	},
 	prelude::*,
 	runtime::{
@@ -129,7 +127,6 @@ impl pallet_transaction_payment::Config for Runtime {
 // Timestamp pallet is required for runtime APIs
 #[derive_impl(pallet_timestamp::config_preludes::TestDefaultConfig)]
 impl pallet_timestamp::Config for Runtime {}
-
 
 parameter_types! {
 	pub const BasicDeposit: Balance = 10;

@@ -66,7 +66,17 @@ use sp_runtime::traits::{Saturating, Zero};
 use sp_std::vec;
 
 /// Identity information that can be set by users
-#[derive(Encode, Decode, Default, CloneNoBound, PartialEqNoBound, Eq, RuntimeDebugNoBound, TypeInfo, MaxEncodedLen)]
+#[derive(
+	Encode,
+	Decode,
+	Default,
+	CloneNoBound,
+	PartialEqNoBound,
+	Eq,
+	RuntimeDebugNoBound,
+	TypeInfo,
+	MaxEncodedLen,
+)]
 #[scale_info(skip_type_params(MaxFieldLength))]
 pub struct IdentityInfo<MaxFieldLength: Get<u32>> {
 	/// A reasonable display name for the controller of the account.
@@ -118,7 +128,16 @@ pub mod pallet {
 	use super::*;
 
 	/// Information concerning the identity of the controller of an account.
-	#[derive(Encode, Decode, CloneNoBound, PartialEqNoBound, Eq, RuntimeDebugNoBound, MaxEncodedLen, TypeInfo)]
+	#[derive(
+		Encode,
+		Decode,
+		CloneNoBound,
+		PartialEqNoBound,
+		Eq,
+		RuntimeDebugNoBound,
+		MaxEncodedLen,
+		TypeInfo,
+	)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Registration<T: Config> {
 		/// Information about the identity.
@@ -140,7 +159,6 @@ pub mod pallet {
 			self.deposit
 		}
 	}
-
 
 	#[pallet::pallet]
 	pub struct Pallet<T>(_);
@@ -256,6 +274,8 @@ pub mod pallet {
 					// Only keep sticky judgements when setting new identity
 					id.judgements.retain(|(_id, judgement)| judgement.is_sticky());
 					id.info = info;
+					// Note: We preserve judgements_count_double_map to maintain consistency
+					// with double map storage (double map judgements are independent of inline)
 					id
 				},
 				None => Registration {
@@ -404,8 +424,9 @@ pub mod pallet {
 			let deposit = id.total_deposit();
 
 			// Always cleanup double map judgements (this is O(n) where n = actual judgements)
-			// This operation uses clear_prefix and will be fast if no double map judgements exist
-			Self::clear_judgements_double_map(&sender);
+			// This operation uses drain_prefix and will be fast if no double map judgements exist
+			let cleared = Self::clear_judgements_double_map(&sender);
+			debug_assert_eq!(cleared, id.judgements_count_double_map);
 
 			// The inline judgements are automatically dropped with the Registration struct (O(1))
 
@@ -435,10 +456,10 @@ pub mod pallet {
 		/// judgements, which is much better than checking all possible judgement IDs
 		/// O(MAX_JUDGEMENTS).
 		fn clear_judgements_double_map(who: &T::AccountId) -> u32 {
-			// Use clear_prefix to efficiently remove all judgements for this account
+			// Use drain_prefix to efficiently remove all judgements for this account
 			// This is O(n) where n is the actual number of judgements, not MAX_JUDGEMENTS
-			let removed = JudgementsDoubleMap::<T>::clear_prefix(who, u32::MAX, None);
-			removed.unique as u32
+			let removed = JudgementsDoubleMap::<T>::drain_prefix(who);
+			removed.count() as u32
 		}
 
 		/// Helper function to add a judgement to inline storage only (BoundedVec).

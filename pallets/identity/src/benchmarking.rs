@@ -231,10 +231,15 @@ mod benchmarks {
 			identity_info.email,
 		);
 
-		// Add existing judgements to the double map
+		// Add existing judgements using the proper extrinsic
 		for i in 0..j {
 			let judgement_id = (i * 2) + 1; // Creates IDs: 1, 3, 5, 7, ...
-			JudgementsDoubleMap::<T>::insert(&target, judgement_id, Judgement::Reasonable);
+			let _ = Identity::<T>::provide_judgement_double_map(
+				RawOrigin::Root.into(),
+				judgement_id,
+				target.clone(),
+				1, // Reasonable
+			);
 		}
 
 		let new_judgement_id = 0u32; // This will be a new entry
@@ -321,7 +326,7 @@ mod benchmarks {
 	fn clear_identity_double_map_usage(
 		j: Linear<0, { T::MaxJudgements::get() }>, // Number of judgements
 	) {
-		let caller: T::AccountId = whitelisted_caller();
+		let caller: T::AccountId = account("caller", 0, 0);
 		fund_account::<T>(&caller);
 
 		// Pre-condition: set up identity
@@ -334,7 +339,7 @@ mod benchmarks {
 			identity_info.email,
 		);
 
-		// Add judgements using ONLY the double map approach (via provide_judgement_double_map)
+		// Add judgements using the proper extrinsic
 		for i in 0..j {
 			let _ = Identity::<T>::provide_judgement_double_map(
 				RawOrigin::Root.into(),
