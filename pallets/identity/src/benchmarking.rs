@@ -42,8 +42,8 @@ use sp_std::vec;
 /// Create a reasonable identity info for benchmarking
 /// This helper demonstrates how to set up test data for benchmarks
 fn create_identity_info<T: Config>(bytes: u32) -> IdentityInfo<T::MaxFieldLength> {
-	let data = vec![b'X'; bytes.min(T::MaxFieldLength::get()) as usize];
-	let bounded_data = BoundedVec::try_from(data).unwrap_or_default();
+	let data = vec![b'X'; bytes as usize];
+	let bounded_data = BoundedVec::try_from(data).expect("BoundedVec input too long.");
 
 	IdentityInfo {
 		display: bounded_data.clone(),
@@ -159,19 +159,21 @@ mod benchmarks {
 
 	/// Benchmark: provide_judgement_inline
 	///
-	/// This benchmark tests providing a judgement using inline storage (BoundedVec)
-	/// Complexity: Logarithmic in the number of existing judgements (j) for binary search
-	/// This demonstrates logarithmic complexity O(log n) operations with efficient inline storage
+	/// This benchmark tests providing a judgement using inline storage (BoundedVec).
+	/// Complexity:
+	/// - Linear `O(b + j)` complexity in terms of encoding and decoding (with j being the number of judgements).
+	/// - Logarithmic `O(log j)` complexity in the number of existing judgements for binary search at insertion.
+	/// - Constant `O(1)` complexity in terms of storage reads and writes.
 	#[benchmark]
 	fn provide_judgement_inline(
-		j: Linear<0, { T::MaxJudgements::get() - 1 }>, /* Max existing judgements so we can add
-		                                                * one more */
+		b: Linear<1, { T::MaxFieldLength::get() }>,
+		j: Linear<0, { T::MaxJudgements::get() - 1 }>,
 	) {
 		let target: T::AccountId = account("target", 0, 0);
 		fund_account::<T>(&target);
 
 		// Pre-condition: set up identity
-		let identity_info = create_identity_info::<T>(10);
+		let identity_info = create_identity_info::<T>(b);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(target.clone()).into(),
 			identity_info.display,
@@ -211,18 +213,21 @@ mod benchmarks {
 	/// Benchmark: provide_judgement_double_map
 	///
 	/// This benchmark tests providing a judgement using double map storage
-	/// Complexity: Constant time O(1) for insertion but requires separate validation
-	/// This demonstrates the double map storage pattern with separate storage management
+	/// Complexity: Linear `O(b)` complexity, but independent of number of judgements!
+	///
+	/// NOTE: We ignore the possibility of inline judgements for illustration purposes. This is meant to
+	/// showcase an alternative implementation after all. If we actually had both implementation in parallel - inadvisable -
+	/// we would need to cover the worst case of `j` inline judgements as well.
 	#[benchmark]
 	fn provide_judgement_double_map(
-		j: Linear<0, { T::MaxJudgements::get() - 1 }>, /* Max existing judgements so we can add
-		                                                * one more */
+		b: Linear<1, { T::MaxFieldLength::get() }>,
+		j: Linear<0, { T::MaxJudgements::get() - 1 }>,
 	) {
 		let target: T::AccountId = account("target", 0, 0);
 		fund_account::<T>(&target);
 
 		// Pre-condition: set up identity
-		let identity_info = create_identity_info::<T>(10);
+		let identity_info = create_identity_info::<T>(b);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(target.clone()).into(),
 			identity_info.display,
@@ -233,16 +238,15 @@ mod benchmarks {
 
 		// Add existing judgements using the proper extrinsic
 		for i in 0..j {
-			let judgement_id = (i * 2) + 1; // Creates IDs: 1, 3, 5, 7, ...
 			let _ = Identity::<T>::provide_judgement_double_map(
 				RawOrigin::Root.into(),
-				judgement_id,
+				i,
 				target.clone(),
 				1, // Reasonable
 			);
 		}
 
-		let new_judgement_id = 0u32; // This will be a new entry
+		let new_judgement_id = j; // This will be a new entry
 		let judgement_type = 2u8; // KnownGood
 
 		#[extrinsic_call]
@@ -260,9 +264,8 @@ mod benchmarks {
 		);
 		// Verify other judgements still exist
 		for i in 0..j {
-			let judgement_id = (i * 2) + 1;
 			assert_eq!(
-				JudgementsDoubleMap::<T>::get(&target, judgement_id),
+				JudgementsDoubleMap::<T>::get(&target, i),
 				Some(Judgement::Reasonable)
 			);
 		}
@@ -270,19 +273,21 @@ mod benchmarks {
 
 	/// Benchmark: clear_identity_inline_usage
 	///
-	/// Complexity: Effectively O(1) - when only inline judgements were used
-	/// This benchmark demonstrates the efficient case where only provide_judgement_inline
-	/// was used. Even though clear_identity always checks the double map, it will be fast
-	/// since no double map entries exist, making the overall operation effectively O(1).
+	/// Complexity: Linear `O(b)` complexity in amount of bytes stored in the identity.
+	///
+	/// This benchmark demonstrates the efficient deletion case where only `provide_judgement_inline`
+	/// was used. (Even though `clear_identity` always checks the double map, it will be fast
+	/// since no double map entries exist, making the overall operation effectively O(1).)
 	#[benchmark]
 	fn clear_identity_inline_usage(
+		b: Linear<1, { T::MaxFieldLength::get() }>,
 		j: Linear<0, { T::MaxJudgements::get() }>, // Number of judgements
 	) {
 		let caller: T::AccountId = whitelisted_caller();
 		fund_account::<T>(&caller);
 
 		// Pre-condition: set up identity
-		let identity_info = create_identity_info::<T>(10);
+		let identity_info = create_identity_info::<T>(b);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(caller.clone()).into(),
 			identity_info.display,
@@ -318,7 +323,9 @@ mod benchmarks {
 
 	/// Benchmark: clear_identity_double_map_usage
 	///
-	/// Complexity: Linear in actual judgements (j) - when double map judgements were used
+	/// Complexity: Linear `O(j)` complexity in the number of actual double map judgements (j).
+	/// Leads to `j` storage deletions!!
+	/// 
 	/// This benchmark demonstrates the case where provide_judgement_double_map was used.
 	/// The clear_identity operation uses clear_prefix to remove all judgements - O(j).
 	/// This shows the performance difference vs inline storage where cleanup is O(1).

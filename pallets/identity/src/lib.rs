@@ -258,6 +258,7 @@ pub mod pallet {
 		/// - `email`: The email address.
 		///
 		/// Emits `IdentitySet` if successful.
+		// TODO: add weight annotation using set_identity_update benchmark
 		pub fn set_identity(
 			origin: OriginFor<T>,
 			display: BoundedVec<u8, T::MaxFieldLength>,
@@ -284,6 +285,7 @@ pub mod pallet {
 					judgements_count_double_map: 0,
 					deposit: Zero::zero(),
 				},
+				// TODO: add corrected weight return to demonstrate using set_identity benchmark and refunds
 			};
 
 			let new_deposit = Self::calculate_identity_deposit(&id.info);
@@ -294,6 +296,7 @@ pub mod pallet {
 			IdentityOf::<T>::insert(&sender, id);
 			Self::deposit_event(Event::IdentitySet { who: sender });
 
+			// TODO: return more accurate weights
 			Ok(())
 		}
 
@@ -362,6 +365,7 @@ pub mod pallet {
 			T::JudgementOrigin::ensure_origin(origin)?;
 
 			// Convert u8 to Judgement
+			// TODO: refactor out into function
 			let judgement = match judgement_type {
 				0 => Judgement::Unknown,
 				1 => Judgement::Reasonable,
