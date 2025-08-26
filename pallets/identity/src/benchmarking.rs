@@ -272,104 +272,31 @@ mod benchmarks {
 	}
 
 	/// Benchmark: clear_identity_inline_usage
-	///
-	/// Complexity: Linear `O(b)` complexity in amount of bytes stored in the identity.
-	///
-	/// This benchmark demonstrates the efficient deletion case where only
-	/// `provide_judgement_inline` was used. (Even though `clear_identity` always checks the double
-	/// map, it will be fast since no double map entries exist, making the overall operation
-	/// effectively O(1).)
+	//
+	// Implement this benchmark taking into account best practices and the complexity of the code
+	// and storage.
 	#[benchmark]
 	fn clear_identity_inline_usage(
-		b: Linear<1, { T::MaxFieldLength::get() }>,
-		j: Linear<0, { T::MaxJudgements::get() }>, // Number of judgements
+		b: Linear<1, { T::MaxFieldLength::get() }>, // TODO: determine if necessary
+		j: Linear<0, { T::MaxJudgements::get() }>,  // TODO: determine if necessary
 	) {
-		let caller: T::AccountId = whitelisted_caller();
-		fund_account::<T>(&caller);
-
-		// Pre-condition: set up identity
-		let identity_info = create_identity_info::<T>(b);
-		let _ = Identity::<T>::set_identity(
-			RawOrigin::Signed(caller.clone()).into(),
-			identity_info.display,
-			identity_info.legal,
-			identity_info.web,
-			identity_info.email,
-		);
-
-		// Add judgements using ONLY the inline approach (via provide_judgement_inline)
-		for i in 0..j {
-			let _ = Identity::<T>::provide_judgement_inline(
-				RawOrigin::Root.into(),
-				i,
-				caller.clone(),
-				1, // Reasonable
-			);
-		}
-
-		let _deposit_before = T::Currency::reserved_balance(&caller);
-
-		#[extrinsic_call]
-		clear_identity(RawOrigin::Signed(caller.clone()));
-
-		// Verify storage was cleared and deposit returned
-		assert!(IdentityOf::<T>::get(&caller).is_none());
-		// Verify no double map entries exist (since we only used inline)
-		for i in 0..j {
-			assert!(!JudgementsDoubleMap::<T>::contains_key(&caller, i));
-		}
-		assert_eq!(T::Currency::reserved_balance(&caller), Zero::zero());
-		assert_eq!(T::Currency::free_balance(&caller), T::Currency::total_balance(&caller));
+		// TODO: implement
+		#[block]
+		{}
 	}
 
 	/// Benchmark: clear_identity_double_map_usage
-	///
-	/// Complexity: Linear `O(j)` complexity in the number of actual double map judgements (j).
-	/// Leads to `j` storage deletions!!
-	///
-	/// This benchmark demonstrates the case where provide_judgement_double_map was used.
-	/// The clear_identity operation uses clear_prefix to remove all judgements - O(j).
-	/// This shows the performance difference vs inline storage where cleanup is O(1).
+	//
+	// Implement this benchmark taking into account best practices and the complexity of the code
+	// and storage.
 	#[benchmark]
 	fn clear_identity_double_map_usage(
-		j: Linear<0, { T::MaxJudgements::get() }>, // Number of judgements
+		b: Linear<1, { T::MaxFieldLength::get() }>, // TODO: determine if necessary
+		j: Linear<0, { T::MaxJudgements::get() }>,  // TODO: determine if necessary
 	) {
-		let caller: T::AccountId = account("caller", 0, 0);
-		fund_account::<T>(&caller);
-
-		// Pre-condition: set up identity
-		let identity_info = create_identity_info::<T>(10);
-		let _ = Identity::<T>::set_identity(
-			RawOrigin::Signed(caller.clone()).into(),
-			identity_info.display,
-			identity_info.legal,
-			identity_info.web,
-			identity_info.email,
-		);
-
-		// Add judgements using the proper extrinsic
-		for i in 0..j {
-			let _ = Identity::<T>::provide_judgement_double_map(
-				RawOrigin::Root.into(),
-				i,
-				caller.clone(),
-				1, // Reasonable
-			);
-		}
-
-		let _deposit_before = T::Currency::reserved_balance(&caller);
-
-		#[extrinsic_call]
-		clear_identity(RawOrigin::Signed(caller.clone()));
-
-		// Verify all storage was cleared
-		assert!(IdentityOf::<T>::get(&caller).is_none());
-		// Verify double map entries were also cleared
-		for i in 0..j {
-			assert!(!JudgementsDoubleMap::<T>::contains_key(&caller, i));
-		}
-		assert_eq!(T::Currency::reserved_balance(&caller), Zero::zero());
-		assert_eq!(T::Currency::free_balance(&caller), T::Currency::total_balance(&caller));
+		// TODO: implement
+		#[block]
+		{}
 	}
 
 	impl_benchmark_test_suite!(Identity, crate::mock::new_test_ext(), crate::mock::Test);
