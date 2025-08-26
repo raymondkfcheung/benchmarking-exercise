@@ -7,7 +7,7 @@ use frame::{
 	deps::frame_support::{
 		genesis_builder_helper::{build_state, get_preset},
 		runtime,
-		weights::FixedFee,
+		weights::{FixedFee, Weight},
 	},
 	prelude::*,
 	runtime::{
@@ -144,6 +144,7 @@ impl pallet_identity::Config for Runtime {
 	type MaxJudgements = MaxJudgements;
 	type MaxFieldLength = MaxFieldLength;
 	type JudgementOrigin = EnsureRoot<AccountId>;
+	type WeightInfo = ();
 }
 
 /// The signed extensions that are added to the runtime.

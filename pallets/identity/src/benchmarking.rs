@@ -161,8 +161,10 @@ mod benchmarks {
 	///
 	/// This benchmark tests providing a judgement using inline storage (BoundedVec).
 	/// Complexity:
-	/// - Linear `O(b + j)` complexity in terms of encoding and decoding (with j being the number of judgements).
-	/// - Logarithmic `O(log j)` complexity in the number of existing judgements for binary search at insertion.
+	/// - Linear `O(b + j)` complexity in terms of encoding and decoding (with j being the number of
+	///   judgements).
+	/// - Logarithmic `O(log j)` complexity in the number of existing judgements for binary search
+	///   at insertion.
 	/// - Constant `O(1)` complexity in terms of storage reads and writes.
 	#[benchmark]
 	fn provide_judgement_inline(
@@ -215,9 +217,10 @@ mod benchmarks {
 	/// This benchmark tests providing a judgement using double map storage
 	/// Complexity: Linear `O(b)` complexity, but independent of number of judgements!
 	///
-	/// NOTE: We ignore the possibility of inline judgements for illustration purposes. This is meant to
-	/// showcase an alternative implementation after all. If we actually had both implementation in parallel - inadvisable -
-	/// we would need to cover the worst case of `j` inline judgements as well.
+	/// NOTE: We ignore the possibility of inline judgements for illustration purposes. This is
+	/// meant to showcase an alternative implementation after all. If we actually had both
+	/// implementation in parallel - inadvisable - we would need to cover the worst case of `j`
+	/// inline judgements as well.
 	#[benchmark]
 	fn provide_judgement_double_map(
 		b: Linear<1, { T::MaxFieldLength::get() }>,
@@ -264,10 +267,7 @@ mod benchmarks {
 		);
 		// Verify other judgements still exist
 		for i in 0..j {
-			assert_eq!(
-				JudgementsDoubleMap::<T>::get(&target, i),
-				Some(Judgement::Reasonable)
-			);
+			assert_eq!(JudgementsDoubleMap::<T>::get(&target, i), Some(Judgement::Reasonable));
 		}
 	}
 
@@ -275,9 +275,10 @@ mod benchmarks {
 	///
 	/// Complexity: Linear `O(b)` complexity in amount of bytes stored in the identity.
 	///
-	/// This benchmark demonstrates the efficient deletion case where only `provide_judgement_inline`
-	/// was used. (Even though `clear_identity` always checks the double map, it will be fast
-	/// since no double map entries exist, making the overall operation effectively O(1).)
+	/// This benchmark demonstrates the efficient deletion case where only
+	/// `provide_judgement_inline` was used. (Even though `clear_identity` always checks the double
+	/// map, it will be fast since no double map entries exist, making the overall operation
+	/// effectively O(1).)
 	#[benchmark]
 	fn clear_identity_inline_usage(
 		b: Linear<1, { T::MaxFieldLength::get() }>,
@@ -325,7 +326,7 @@ mod benchmarks {
 	///
 	/// Complexity: Linear `O(j)` complexity in the number of actual double map judgements (j).
 	/// Leads to `j` storage deletions!!
-	/// 
+	///
 	/// This benchmark demonstrates the case where provide_judgement_double_map was used.
 	/// The clear_identity operation uses clear_prefix to remove all judgements - O(j).
 	/// This shows the performance difference vs inline storage where cleanup is O(1).

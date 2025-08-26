@@ -80,6 +80,7 @@ impl pallet_identity::Config for Test {
 	type MaxJudgements = MaxJudgements;
 	type MaxFieldLength = MaxFieldLength;
 	type JudgementOrigin = frame_system::EnsureRoot<Self::AccountId>;
+	type WeightInfo = ();
 }
 
 // Build genesis storage according to the mock runtime.

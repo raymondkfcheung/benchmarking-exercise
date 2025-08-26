@@ -54,6 +54,8 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+mod weights;
+
 use codec::{Decode, Encode, MaxEncodedLen};
 use frame_support::{
 	pallet_prelude::*,
@@ -64,6 +66,8 @@ use frame_system::pallet_prelude::*;
 use scale_info::TypeInfo;
 use sp_runtime::traits::{Saturating, Zero};
 use sp_std::vec;
+
+pub use weights::WeightInfo;
 
 /// Identity information that can be set by users
 #[derive(
@@ -190,6 +194,9 @@ pub mod pallet {
 		/// Maximum length for identity field data.
 		#[pallet::constant]
 		type MaxFieldLength: Get<u32>;
+
+		/// Weight information for extrinsics in this pallet.
+		type WeightInfo: WeightInfo;
 	}
 
 	/// Information that is pertinent to identify the entity behind an account.
@@ -258,46 +265,80 @@ pub mod pallet {
 		/// - `email`: The email address.
 		///
 		/// Emits `IdentitySet` if successful.
-		// TODO: add weight annotation using set_identity_update benchmark
+		#[pallet::weight(T::WeightInfo::set_identity_update(
+			T::MaxFieldLength::get(), // worst case: fields at max length
+			T::MaxJudgements::get() // worst case: maximum judgements
+		))]
 		pub fn set_identity(
 			origin: OriginFor<T>,
 			display: BoundedVec<u8, T::MaxFieldLength>,
 			legal: BoundedVec<u8, T::MaxFieldLength>,
 			web: BoundedVec<u8, T::MaxFieldLength>,
 			email: BoundedVec<u8, T::MaxFieldLength>,
-		) -> DispatchResult {
+		) -> DispatchResultWithPostInfo {
 			let sender = ensure_signed(origin)?;
 
 			let info = IdentityInfo { display, legal, web, email };
 
-			let mut id = match IdentityOf::<T>::get(&sender) {
+			// Calculate the length of the longest field for weight calculation
+			let max_field_length = info
+				.display
+				.len()
+				.max(info.legal.len())
+				.max(info.web.len())
+				.max(info.email.len());
+
+			let id = match IdentityOf::<T>::take(&sender) {
 				Some(mut id) => {
+					// Calculate expected weight based on previous state
+					let expected_judgements_count = id.judgements.len() as u32;
+
+					// Make sure we account for long existing fields in storage
+					let max_field_length = max_field_length
+						.max(id.info.display.len())
+						.max(id.info.legal.len())
+						.max(id.info.web.len())
+						.max(id.info.email.len());
 					// Only keep sticky judgements when setting new identity
 					id.judgements.retain(|(_id, judgement)| judgement.is_sticky());
 					id.info = info;
 					// Note: We preserve judgements_count_double_map to maintain consistency
 					// with double map storage (double map judgements are independent of inline)
-					id
-				},
-				None => Registration {
-					info,
-					judgements: BoundedVec::default(),
-					judgements_count_double_map: 0,
-					deposit: Zero::zero(),
-				},
-				// TODO: add corrected weight return to demonstrate using set_identity benchmark and refunds
-			};
 
-			let new_deposit = Self::calculate_identity_deposit(&id.info);
-			let old_deposit = id.deposit;
+					// Calculate actual weight used
+					let actual_weight = T::WeightInfo::set_identity_update(
+						max_field_length as u32,
+						expected_judgements_count,
+					);
+
+					(id, actual_weight)
+				},
+				None => {
+					let reg = Registration {
+						info,
+						judgements: BoundedVec::default(),
+						judgements_count_double_map: 0,
+						deposit: Zero::zero(),
+					};
+
+					// Calculate actual weight for new identity
+					let actual_weight = T::WeightInfo::set_identity(max_field_length as u32);
+
+					(reg, actual_weight)
+				},
+			};
+			let (mut registration, actual_weight) = id;
+
+			let new_deposit = Self::calculate_identity_deposit(&registration.info);
+			let old_deposit = registration.deposit;
 			Self::rejig_deposit(&sender, old_deposit, new_deposit)?;
 
-			id.deposit = new_deposit;
-			IdentityOf::<T>::insert(&sender, id);
+			registration.deposit = new_deposit;
+			IdentityOf::<T>::insert(&sender, registration);
 			Self::deposit_event(Event::IdentitySet { who: sender });
 
-			// TODO: return more accurate weights
-			Ok(())
+			// Return actual weight consumed
+			Ok(Some(actual_weight).into())
 		}
 
 		/// Provide a judgement for an account's identity using inline storage (BoundedVec).
@@ -313,6 +354,7 @@ pub mod pallet {
 		///   3=Erroneous, 4=LowQuality).
 		///
 		/// Emits `JudgementGiven` if successful.
+		#[pallet::weight(T::WeightInfo::provide_judgement_inline(T::MaxJudgements::get()))]
 		pub fn provide_judgement_inline(
 			origin: OriginFor<T>,
 			judgement_id: JudgementId,
@@ -322,14 +364,7 @@ pub mod pallet {
 			T::JudgementOrigin::ensure_origin(origin)?;
 
 			// Convert u8 to Judgement
-			let judgement = match judgement_type {
-				0 => Judgement::Unknown,
-				1 => Judgement::Reasonable,
-				2 => Judgement::KnownGood,
-				3 => Judgement::Erroneous,
-				4 => Judgement::LowQuality,
-				_ => return Err(Error::<T>::InvalidJudgement.into()),
-			};
+			let judgement = Self::u8_to_judgement(judgement_type)?;
 
 			// Add judgement only to the inline BoundedVec storage
 			Self::add_judgement_inline(&target, judgement_id, judgement)?;
@@ -356,6 +391,7 @@ pub mod pallet {
 		///   3=Erroneous, 4=LowQuality).
 		///
 		/// Emits `JudgementGiven` if successful.
+		#[pallet::weight(T::WeightInfo::provide_judgement_double_map())]
 		pub fn provide_judgement_double_map(
 			origin: OriginFor<T>,
 			judgement_id: JudgementId,
@@ -365,15 +401,7 @@ pub mod pallet {
 			T::JudgementOrigin::ensure_origin(origin)?;
 
 			// Convert u8 to Judgement
-			// TODO: refactor out into function
-			let judgement = match judgement_type {
-				0 => Judgement::Unknown,
-				1 => Judgement::Reasonable,
-				2 => Judgement::KnownGood,
-				3 => Judgement::Erroneous,
-				4 => Judgement::LowQuality,
-				_ => return Err(Error::<T>::InvalidJudgement.into()),
-			};
+			let judgement = Self::u8_to_judgement(judgement_type)?;
 
 			// Check that target has an identity and validate sticky judgements
 			let _is_new_judgement =
@@ -421,6 +449,7 @@ pub mod pallet {
 		/// identity.
 		///
 		/// Emits `IdentityCleared` if successful.
+		#[pallet::weight(T::WeightInfo::clear_identity_double_map_usage(T::MaxJudgements::get()))]
 		pub fn clear_identity(origin: OriginFor<T>) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
 
@@ -448,6 +477,18 @@ pub mod pallet {
 			IdentityOf::<T>::get(who)
 		}
 
+		/// Convert u8 to Judgement enum
+		fn u8_to_judgement(judgement_type: u8) -> Result<Judgement, DispatchError> {
+			match judgement_type {
+				0 => Ok(Judgement::Unknown),
+				1 => Ok(Judgement::Reasonable),
+				2 => Ok(Judgement::KnownGood),
+				3 => Ok(Judgement::Erroneous),
+				4 => Ok(Judgement::LowQuality),
+				_ => Err(Error::<T>::InvalidJudgement.into()),
+			}
+		}
+
 		/// Calculate the deposit required for an identity.
 		fn calculate_identity_deposit(info: &IdentityInfo<T::MaxFieldLength>) -> BalanceOf<T> {
 			let bytes = info.encoded_size();
@@ -456,12 +497,9 @@ pub mod pallet {
 		}
 
 		/// Helper function to clear all judgements from the double map for an account.
-		/// This demonstrates efficient cleanup using clear_prefix - O(n) where n is actual
-		/// judgements, which is much better than checking all possible judgement IDs
-		/// O(MAX_JUDGEMENTS).
+		/// This demonstrates efficient cleanup using clear_prefix - O(j) where j is actual
+		/// judgements.
 		fn clear_judgements_double_map(who: &T::AccountId) -> u32 {
-			// Use drain_prefix to efficiently remove all judgements for this account
-			// This is O(n) where n is the actual number of judgements, not MAX_JUDGEMENTS
 			let removed = JudgementsDoubleMap::<T>::drain_prefix(who);
 			removed.count() as u32
 		}
