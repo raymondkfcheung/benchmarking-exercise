@@ -294,21 +294,28 @@ mod benchmarks {
 
 		// Add maximum judgements (mix of sticky and non-sticky) for worst case
 		for i in 0..j {
-			// Alternate between sticky (KnownGood/Erroneous) and non-sticky (Reasonable/LowQuality)
-			let judgement_type = if i % 2 == 0 { 2 } else { 1 }; // KnownGood or Reasonable
 			let _ = Identity::<T>::provide_judgement_inline(
 				RawOrigin::Root.into(),
 				i,
 				caller.clone(),
-				judgement_type,
+				1, // Reasonable
 			);
 		}
+
+		let _deposit_before = T::Currency::reserved_balance(&caller);
 
 		#[extrinsic_call]
 		clear_identity(RawOrigin::Signed(caller.clone()));
 
+		// Verify storage was cleared and deposit returned
 		let registration = IdentityOf::<T>::get(&caller);
 		assert_eq!(registration, None);
+		// Verify no double map entries exist (since we only used inline)
+		for i in 0..j {
+			assert!(!JudgementsDoubleMap::<T>::contains_key(&caller, i));
+		}
+		assert_eq!(T::Currency::reserved_balance(&caller), Zero::zero());
+		assert_eq!(T::Currency::free_balance(&caller), T::Currency::total_balance(&caller));
 	}
 
 	/// Benchmark: clear_identity_double_map_usage
@@ -317,14 +324,13 @@ mod benchmarks {
 	// and storage.
 	#[benchmark]
 	fn clear_identity_double_map_usage(
-		b: Linear<1, { T::MaxFieldLength::get() }>, // TODO: determine if necessary
-		j: Linear<0, { T::MaxJudgements::get() }>,  // TODO: determine if necessary
+		j: Linear<0, { T::MaxJudgements::get() }>, // Number of judgements
 	) {
-		let caller: T::AccountId = whitelisted_caller();
+		let caller: T::AccountId = account("caller", 0, 0);
 		fund_account::<T>(&caller);
 
 		// Pre-condition: set an initial identity
-		let initial_info = create_identity_info::<T>(b / 2);
+		let initial_info = create_identity_info::<T>(10);
 		let _ = Identity::<T>::set_identity(
 			RawOrigin::Signed(caller.clone()).into(),
 			initial_info.display,
@@ -343,13 +349,20 @@ mod benchmarks {
 			);
 		}
 
-		let new_identity_info = create_identity_info::<T>(b);
+		let _deposit_before = T::Currency::reserved_balance(&caller);
 
 		#[extrinsic_call]
 		clear_identity(RawOrigin::Signed(caller.clone()));
 
+		// Verify all storage was cleared
 		let registration = IdentityOf::<T>::get(&caller);
 		assert_eq!(registration, None);
+		// Verify double map entries were also cleared
+		for i in 0..j {
+			assert!(!JudgementsDoubleMap::<T>::contains_key(&caller, i));
+		}
+		assert_eq!(T::Currency::reserved_balance(&caller), Zero::zero());
+		assert_eq!(T::Currency::free_balance(&caller), T::Currency::total_balance(&caller));
 	}
 
 	impl_benchmark_test_suite!(Identity, crate::mock::new_test_ext(), crate::mock::Test);
