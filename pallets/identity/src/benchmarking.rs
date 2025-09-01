@@ -36,7 +36,6 @@ use frame_support::{
 	BoundedVec,
 };
 use frame_system::RawOrigin;
-use sp_runtime::traits::Zero;
 use sp_std::vec;
 
 /// Create a reasonable identity info for benchmarking
@@ -277,12 +276,39 @@ mod benchmarks {
 	// and storage.
 	#[benchmark]
 	fn clear_identity_inline_usage(
-		b: Linear<1, { T::MaxFieldLength::get() }>, // TODO: determine if necessary
-		j: Linear<0, { T::MaxJudgements::get() }>,  // TODO: determine if necessary
+		b: Linear<1, { T::MaxFieldLength::get() }>,
+		j: Linear<0, { T::MaxJudgements::get() }>,
 	) {
-		// TODO: implement
-		#[block]
-		{}
+		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller);
+
+		// Pre-condition: set an initial identity
+		let initial_info = create_identity_info::<T>(b / 2);
+		let _ = Identity::<T>::set_identity(
+			RawOrigin::Signed(caller.clone()).into(),
+			initial_info.display,
+			initial_info.legal,
+			initial_info.web,
+			initial_info.email,
+		);
+
+		// Add maximum judgements (mix of sticky and non-sticky) for worst case
+		for i in 0..j {
+			// Alternate between sticky (KnownGood/Erroneous) and non-sticky (Reasonable/LowQuality)
+			let judgement_type = if i % 2 == 0 { 2 } else { 1 }; // KnownGood or Reasonable
+			let _ = Identity::<T>::provide_judgement_inline(
+				RawOrigin::Root.into(),
+				i,
+				caller.clone(),
+				judgement_type,
+			);
+		}
+
+		#[extrinsic_call]
+		clear_identity(RawOrigin::Signed(caller.clone()));
+
+		let registration = IdentityOf::<T>::get(&caller);
+		assert_eq!(registration, None);
 	}
 
 	/// Benchmark: clear_identity_double_map_usage
@@ -294,9 +320,36 @@ mod benchmarks {
 		b: Linear<1, { T::MaxFieldLength::get() }>, // TODO: determine if necessary
 		j: Linear<0, { T::MaxJudgements::get() }>,  // TODO: determine if necessary
 	) {
-		// TODO: implement
-		#[block]
-		{}
+		let caller: T::AccountId = whitelisted_caller();
+		fund_account::<T>(&caller);
+
+		// Pre-condition: set an initial identity
+		let initial_info = create_identity_info::<T>(b / 2);
+		let _ = Identity::<T>::set_identity(
+			RawOrigin::Signed(caller.clone()).into(),
+			initial_info.display,
+			initial_info.legal,
+			initial_info.web,
+			initial_info.email,
+		);
+
+		// Add existing judgements using the proper extrinsic
+		for i in 0..j {
+			let _ = Identity::<T>::provide_judgement_double_map(
+				RawOrigin::Root.into(),
+				i,
+				caller.clone(),
+				1, // Reasonable
+			);
+		}
+
+		let new_identity_info = create_identity_info::<T>(b);
+
+		#[extrinsic_call]
+		clear_identity(RawOrigin::Signed(caller.clone()));
+
+		let registration = IdentityOf::<T>::get(&caller);
+		assert_eq!(registration, None);
 	}
 
 	impl_benchmark_test_suite!(Identity, crate::mock::new_test_ext(), crate::mock::Test);

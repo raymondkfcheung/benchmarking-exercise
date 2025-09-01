@@ -191,11 +191,12 @@ cargo build --release --features runtime-benchmarks
 
 Run the omni bencher and generate a `weights.rs` file with your results:
 ```bash
+mkdir -p pallets/identity/src/weights
 frame-omni-bencher v1 benchmark pallet \
     --runtime \
     ./target/release/wbuild/bench-runtime/bench_runtime.compact.compressed.wasm \
     --pallet "pallet_identity" --extrinsic "" \
-    --output weights.rs
+    --output pallets/identity/src/weights/weights.rs
 ```
 
 ## Tips for Success
